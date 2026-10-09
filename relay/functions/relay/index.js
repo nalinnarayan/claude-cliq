@@ -60,8 +60,19 @@ app.post('/notify', route((r, req) => r.notify({ headers: req.headers, body: req
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
 
 // -- Cliq-facing -----------------------------------------------------------
-app.post('/cliq-inbound', route((r, req) =>
-  r.inbound({ headers: req.headers, body: req.body })));
+app.post('/cliq-inbound', (req, res, next) => {
+  // Logged before the secret check so a handler calling with the wrong
+  // secret is still visible in the Catalyst logs. Never log the secret or
+  // the message body.
+  console.log('[inbound] hit', JSON.stringify({
+    has_secret: Boolean(req.headers['x-relay-secret']),
+    body_keys: Object.keys(req.body || {}),
+    cliq_user: (req.body || {}).cliq_user || null,
+    text_len: String((req.body || {}).text || '').length,
+    ua: req.headers['user-agent'] || null,
+  }));
+  next();
+}, route((r, req) => r.inbound({ headers: req.headers, body: req.body })));
 
 // Called by the bot's welcome_handler the moment someone subscribes.
 app.post('/issue-code', route((r, req) => {

@@ -1,6 +1,11 @@
 // Bot message handler -- fires on every reply the user types to the bot.
-// Deluge bots declare no permissions: `user` and `message` arrive
+// Deluge bots declare no permissions: `user`, `message` and `chat` arrive
 // automatically. Keeping the code minimal keeps the consent dialog small.
+//
+// Shapes, confirmed by dumping them in a live handler:
+//   message -> a plain STRING, the text itself (NOT a map; .get() throws)
+//   user    -> Map with id, email, first_name, organization_id, ...
+//   chat    -> Map with id, chat_type, and recent_messages[]
 //
 // Deliberately minimal: enqueue and return. Any platform component is capped
 // at 15 seconds, and the real work (deciding what the reply means, resuming a
@@ -8,20 +13,40 @@
 
 payload = Map();
 payload.put("cliq_user", user.get("id"));
-payload.put("text", message.get("text"));
-payload.put("message_id", message.get("id"));
+payload.put("text", message.toString());
+
+// The Cliq message id is what makes a repeated delivery idempotent on the
+// relay. It is not passed directly, but the triggering message is the most
+// recent entry in chat.recent_messages. If that shape ever changes, the
+// relay generates its own id rather than failing.
+recent = chat.get("recent_messages");
+if(recent != null && recent.size() > 0)
+{
+	payload.put("message_id", recent.get(recent.size() - 1).get("id"));
+}
 
 headers = Map();
 headers.put("Content-Type", "application/json");
 headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
 
-invokeurl
-[
-	url: "REPLACE_WITH_RELAY_BASE/cliq-inbound"
-	type: POST
-	parameters: payload.toString()
-	headers: headers
-];
+// Wrapped: an unhandled invokeurl failure aborts the whole script silently,
+// which looks identical to the handler never running.
+try
+{
+	invokeurl
+	[
+		url: "REPLACE_WITH_RELAY_BASE/cliq-inbound"
+		type: POST
+		parameters: payload.toString()
+		headers: headers
+	];
+}
+catch (e)
+{
+	response = Map();
+	response.put("text", "Couldn't reach Claude Code just now: " + e.toString());
+	return response;
+}
 
 // Returning an empty map posts nothing back. The laptop answers in its own
 // time -- an immediate "got it" here would just be noise on every reply.
