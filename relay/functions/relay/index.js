@@ -14,6 +14,7 @@ const catalyst = require('zcatalyst-sdk-node');
 const { createRelay } = require('./core');
 const { createStore } = require('./store-datastore');
 const { createCliq } = require('./cliq');
+const { runSelftest } = require('./selftest');
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -67,6 +68,16 @@ app.post('/issue-code', route((r, req) => {
   requireSecret(req);
   return r.issuePairCode({ cliqUser: req.body.cliq_user, email: req.body.email });
 }));
+
+// Verifies every table round-trips. Secret-gated: it writes rows.
+app.post('/selftest', async (req, res) => {
+  try {
+    requireSecret(req);
+    res.status(200).json(await runSelftest(catalyst.initialize(req)));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
 
 app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
 
