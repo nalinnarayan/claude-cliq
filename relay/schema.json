@@ -6,11 +6,55 @@
       "table_scope": "GLOBAL",
       "_purpose": "One row per paired laptop. The token hash is the only thing that maps a request to a Cliq identity.",
       "columns": [
-        {"column_name": "token_hash", "data_type": "varchar", "max_length": 64, "is_unique": "true", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "SHA-256 of the device token; the raw token is never stored"},
-        {"column_name": "cliq_user", "data_type": "varchar", "max_length": 64, "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "Cliq user id this device belongs to"},
-        {"column_name": "email", "data_type": "varchar", "max_length": 255, "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "Address the bot DMs"},
-        {"column_name": "name", "data_type": "varchar", "max_length": 100, "is_unique": "false", "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false", "description": "Hostname, so a user can tell their machines apart"},
-        {"column_name": "created", "data_type": "bigint", "is_unique": "false", "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false", "description": "Epoch ms when paired"}
+        {
+          "column_name": "token_hash",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "true",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "SHA-256 of the device token; the raw token is never stored"
+        },
+        {
+          "column_name": "cliq_user",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Cliq user id this device belongs to"
+        },
+        {
+          "column_name": "email",
+          "data_type": "varchar",
+          "max_length": 255,
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Address the bot DMs"
+        },
+        {
+          "column_name": "name",
+          "data_type": "varchar",
+          "max_length": 100,
+          "is_unique": "false",
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Hostname, so a user can tell their machines apart"
+        },
+        {
+          "column_name": "created",
+          "data_type": "bigint",
+          "is_unique": "false",
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Epoch ms when paired"
+        }
       ]
     },
     {
@@ -18,10 +62,43 @@
       "table_scope": "GLOBAL",
       "_purpose": "Short-lived one-time codes issued by the bot's welcome handler.",
       "columns": [
-        {"column_name": "code", "data_type": "varchar", "max_length": 32, "is_unique": "true", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "The code typed into /claude-cliq:pair"},
-        {"column_name": "cliq_user", "data_type": "varchar", "max_length": 64, "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "email", "data_type": "varchar", "max_length": 255, "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "expires", "data_type": "bigint", "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "Epoch ms; codes are also deleted on first use"}
+        {
+          "column_name": "code",
+          "data_type": "varchar",
+          "max_length": 32,
+          "is_unique": "true",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "The code typed into /claude-cliq:pair"
+        },
+        {
+          "column_name": "cliq_user",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        },
+        {
+          "column_name": "email",
+          "data_type": "varchar",
+          "max_length": 255,
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        },
+        {
+          "column_name": "expires",
+          "data_type": "bigint",
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Epoch ms; codes are also deleted on first use"
+        }
       ]
     },
     {
@@ -29,12 +106,58 @@
       "table_scope": "GLOBAL",
       "_purpose": "Replies waiting to be collected by a long-poll. The hot path -- rows are deleted as soon as they are delivered.",
       "columns": [
-        {"column_name": "msg_id", "data_type": "varchar", "max_length": 100, "is_unique": "true", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "Cliq message id; unique makes redelivery idempotent"},
-        {"column_name": "cliq_user", "data_type": "varchar", "max_length": 64, "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "Owner; every read filters on this"},
-        {"column_name": "body", "data_type": "text", "is_mandatory": "false", "audit_consent": "false", "description": "Reply text, deleted on delivery unless the user is on the debug allowlist"},
-        {"column_name": "ts", "data_type": "double", "decimal_digits": 3, "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "Epoch seconds; the long-poll cursor"},
-        {"column_name": "expires", "data_type": "bigint", "is_unique": "false", "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "retain", "data_type": "boolean", "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false", "description": "True only for debug-allowlisted users"}
+        {
+          "column_name": "msg_id",
+          "data_type": "varchar",
+          "max_length": 100,
+          "is_unique": "true",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Cliq message id; unique makes redelivery idempotent"
+        },
+        {
+          "column_name": "cliq_user",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Owner; every read filters on this"
+        },
+        {
+          "column_name": "body",
+          "data_type": "text",
+          "is_mandatory": "false",
+          "audit_consent": "false",
+          "description": "Reply text, deleted on delivery unless the user is on the debug allowlist"
+        },
+        {
+          "column_name": "ts",
+          "data_type": "double",
+          "decimal_digits": 3,
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Epoch seconds; the long-poll cursor"
+        },
+        {
+          "column_name": "expires",
+          "data_type": "bigint",
+          "is_unique": "false",
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        },
+        {
+          "column_name": "retain",
+          "data_type": "boolean",
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "True only for debug-allowlisted users"
+        }
       ]
     },
     {
@@ -42,11 +165,48 @@
       "table_scope": "GLOBAL",
       "_purpose": "The last session each user was notified about, so a late reply knows what to offer to resume.",
       "columns": [
-        {"column_name": "cliq_user", "data_type": "varchar", "max_length": 64, "is_unique": "true", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "session_id", "data_type": "varchar", "max_length": 64, "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "cwd", "data_type": "varchar", "max_length": 500, "is_unique": "false", "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "request_id", "data_type": "varchar", "max_length": 16, "is_unique": "false", "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false"},
-        {"column_name": "ts", "data_type": "double", "decimal_digits": 3, "is_mandatory": "false", "search_index_enabled": "false", "audit_consent": "false"}
+        {
+          "column_name": "cliq_user",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "true",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        },
+        {
+          "column_name": "session_id",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        },
+        {
+          "column_name": "cwd",
+          "data_type": "text",
+          "is_mandatory": "false",
+          "audit_consent": "false",
+          "description": "Working directory; Text not varchar because a truncated path would break --resume"
+        },
+        {
+          "column_name": "request_id",
+          "data_type": "varchar",
+          "max_length": 16,
+          "is_unique": "false",
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        },
+        {
+          "column_name": "ts",
+          "data_type": "double",
+          "decimal_digits": 3,
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        }
       ]
     },
     {
@@ -54,8 +214,24 @@
       "table_scope": "GLOBAL",
       "_purpose": "Per-minute send budget, guarding Cliq's shared 50/min ceiling.",
       "columns": [
-        {"column_name": "bucket", "data_type": "varchar", "max_length": 64, "is_unique": "true", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false", "description": "e.g. send:29193847"},
-        {"column_name": "n", "data_type": "int", "is_unique": "false", "is_mandatory": "true", "search_index_enabled": "false", "audit_consent": "false"}
+        {
+          "column_name": "bucket",
+          "data_type": "varchar",
+          "max_length": 64,
+          "is_unique": "true",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "e.g. send:29193847"
+        },
+        {
+          "column_name": "n",
+          "data_type": "int",
+          "is_unique": "false",
+          "is_mandatory": "true",
+          "search_index_enabled": "false",
+          "audit_consent": "false"
+        }
       ]
     }
   ]

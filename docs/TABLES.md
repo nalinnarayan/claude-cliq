@@ -57,7 +57,7 @@ _The last session each user was notified about, so a late reply knows what to of
 | --- | --- | --- | --- | --- |
 | `cliq_user` | varchar | Max Length **64** | **Mandatory**, **Unique** |  |
 | `session_id` | varchar | Max Length **64** | **Mandatory** |  |
-| `cwd` | varchar | Max Length **500** | — |  |
+| `cwd` | text | no size field | — | Working directory; Text not varchar because a truncated path would break --resume |
 | `request_id` | varchar | Max Length **16** | — |  |
 | `ts` | double | no size field | — |  |
 
