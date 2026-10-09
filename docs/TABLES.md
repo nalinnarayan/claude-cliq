@@ -3,86 +3,88 @@
 Catalyst console → your project (**<project>**) → **Cloud Scale →
 Data Store** → **New Table**.
 
-Every table gets a `ROWID` column automatically — don't add one. Leave
-**Search Indexing** off everywhere and leave the default table scope and
-permissions alone; the console sets those up for you.
+Every table already has `ROWID`, `CREATORID`, `CREATEDTIME` and
+`MODIFIEDTIME` — Catalyst's system columns. Leave them; the relay deletes
+delivered rows by `ROWID`.
 
-Five tables, 22 columns. Generated from `relay/schema.json` — if that file
-changes, regenerate rather than editing this by hand.
+Leave **Search Index** and **PII/ePHI** off everywhere, and leave table
+scope and permissions at their defaults.
+
+Five tables, 22 columns. Generated from `relay/schema.json` by
+`docs/gen_tables.py` — regenerate rather than editing this by hand.
 
 ## Devices
 
 _One row per paired laptop. The token hash is the only thing that maps a request to a Cliq identity._
 
-| Column | Type | Size | Flags | Why |
+| Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
-| `token_hash` | varchar | Max length **64** | **Mandatory**, **Unique** | SHA-256 of the device token; the raw token is never stored |
-| `cliq_user` | varchar | Max length **64** | **Mandatory** | Cliq user id this device belongs to |
-| `email` | varchar | Max length **255** | **Mandatory** | Address the bot DMs |
-| `name` | varchar | Max length **100** | — | Hostname, so a user can tell their machines apart |
-| `created` | bigint | — | — | Epoch ms when paired |
+| `token_hash` | varchar | Max Length **64** | **Mandatory**, **Unique** | SHA-256 of the device token; the raw token is never stored |
+| `cliq_user` | varchar | Max Length **64** | **Mandatory** | Cliq user id this device belongs to |
+| `email` | varchar | Max Length **255** | **Mandatory** | Address the bot DMs |
+| `name` | varchar | Max Length **100** | — | Hostname, so a user can tell their machines apart |
+| `created` | bigint | no size field | — | Epoch ms when paired |
 
 ## PairCodes
 
 _Short-lived one-time codes issued by the bot's welcome handler._
 
-| Column | Type | Size | Flags | Why |
+| Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
-| `code` | varchar | Max length **32** | **Mandatory**, **Unique** | The code typed into /claude-cliq:pair |
-| `cliq_user` | varchar | Max length **64** | **Mandatory** |  |
-| `email` | varchar | Max length **255** | **Mandatory** |  |
-| `expires` | bigint | — | **Mandatory** | Epoch ms; codes are also deleted on first use |
+| `code` | varchar | Max Length **32** | **Mandatory**, **Unique** | The code typed into /claude-cliq:pair |
+| `cliq_user` | varchar | Max Length **64** | **Mandatory** |  |
+| `email` | varchar | Max Length **255** | **Mandatory** |  |
+| `expires` | bigint | no size field | **Mandatory** | Epoch ms; codes are also deleted on first use |
 
 ## Pending
 
 _Replies waiting to be collected by a long-poll. The hot path -- rows are deleted as soon as they are delivered._
 
-| Column | Type | Size | Flags | Why |
+| Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
-| `msg_id` | varchar | Max length **100** | **Mandatory**, **Unique** | Cliq message id; unique makes redelivery idempotent |
-| `cliq_user` | varchar | Max length **64** | **Mandatory** | Owner; every read filters on this |
-| `body` | text | — | — | Reply text, deleted on delivery unless the user is on the debug allowlist |
-| `ts` | double | Decimal digits **3** | **Mandatory** | Epoch seconds; the long-poll cursor |
-| `expires` | bigint | — | — |  |
-| `retain` | boolean | — | — | True only for debug-allowlisted users |
+| `msg_id` | varchar | Max Length **100** | **Mandatory**, **Unique** | Cliq message id; unique makes redelivery idempotent |
+| `cliq_user` | varchar | Max Length **64** | **Mandatory** | Owner; every read filters on this |
+| `body` | text | no size field | — | Reply text, deleted on delivery unless the user is on the debug allowlist |
+| `ts` | double | no size field | **Mandatory** | Epoch seconds; the long-poll cursor |
+| `expires` | bigint | no size field | — |  |
+| `retain` | boolean | no size field | — | True only for debug-allowlisted users |
 
 ## Sessions
 
 _The last session each user was notified about, so a late reply knows what to offer to resume._
 
-| Column | Type | Size | Flags | Why |
+| Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
-| `cliq_user` | varchar | Max length **64** | **Mandatory**, **Unique** |  |
-| `session_id` | varchar | Max length **64** | **Mandatory** |  |
-| `cwd` | varchar | Max length **500** | — |  |
-| `request_id` | varchar | Max length **16** | — |  |
-| `ts` | double | Decimal digits **3** | — |  |
+| `cliq_user` | varchar | Max Length **64** | **Mandatory**, **Unique** |  |
+| `session_id` | varchar | Max Length **64** | **Mandatory** |  |
+| `cwd` | varchar | Max Length **500** | — |  |
+| `request_id` | varchar | Max Length **16** | — |  |
+| `ts` | double | no size field | — |  |
 
 ## Counters
 
 _Per-minute send budget, guarding Cliq's shared 50/min ceiling._
 
-| Column | Type | Size | Flags | Why |
+| Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
-| `bucket` | varchar | Max length **64** | **Mandatory**, **Unique** | e.g. send:29193847 |
-| `n` | int | — | **Mandatory** |  |
+| `bucket` | varchar | Max Length **64** | **Mandatory**, **Unique** | e.g. send:29193847 |
+| `n` | int | no size field | **Mandatory** |  |
 
-## When you're done
+## Two things that are easy to get wrong
 
-Sanity-check with these counts: **5 tables**, and columns per table —
-`Devices` 5, `PairCodes` 4, `Pending` 6, `Sessions` 5, `Counters` 2.
+**`cliq_user` appears in four tables with different flags.** It is Unique
+only in `Sessions` (one row per person, overwritten). In `Devices`,
+`PairCodes` and `Pending` it must NOT be unique — one person pairs several
+machines and queues several replies.
 
-The two that matter most if something is mistyped:
-
-- `Pending.ts` must be **double**, not bigint. It is the long-poll cursor
-  and carries fractional epoch seconds; an integer column silently
-  truncates and replies arrive late or twice.
-- `Pending.msg_id` must be **unique**. That uniqueness is what makes a
-  repeated delivery from Cliq idempotent rather than a duplicate reply.
+**`Pending.ts` must be Double, not bigint.** It is the long-poll cursor and
+carries fractional epoch seconds. A bigint accepts the write, silently
+truncates, and replies then arrive late or twice. The console shows no
+decimal-digits field for Double — that is expected, it is floating point.
 
 ## Verifying them
 
-Once the relay is deployed, don't eyeball it — make it prove itself:
+Once the relay is deployed, make it prove itself rather than eyeballing:
 
 ```sh
 curl -s -X POST "$RELAY_URL/selftest" \
@@ -90,13 +92,13 @@ curl -s -X POST "$RELAY_URL/selftest" \
 ```
 
 It writes a probe row to each table, reads it back through ZCQL, checks the
-values survived, and deletes it. A healthy run:
+values survived, and deletes it. Healthy:
 
 ```json
 { "ok": true, "summary": "all 5 tables are good", "results": [...] }
 ```
 
-Anything mistyped comes back named, e.g.
+Anything mistyped comes back named:
 
 ```json
 { "table": "Pending", "ok": false,
