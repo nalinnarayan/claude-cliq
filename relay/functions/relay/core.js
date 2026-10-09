@@ -49,11 +49,19 @@ class HttpError extends Error {
   }
 }
 
-/** Resolve the caller from the Authorization header alone. */
+/**
+ * Resolve the caller from the device-token header alone.
+ *
+ * Deliberately not `Authorization`: Catalyst's gateway claims that header
+ * and rejects anything that isn't one of its own OAuth tokens, so the
+ * request never reaches this function.
+ */
+const DEVICE_HEADER = 'x-device-token';
+
 async function requireDevice(store, headers) {
-  const auth = String(headers.authorization || headers.Authorization || '');
-  if (!auth.startsWith('Bearer ')) throw new HttpError(401, 'missing bearer token');
-  const device = await store.getDevice(sha256(auth.slice(7).trim()));
+  const token = String(headers[DEVICE_HEADER] || headers['X-Device-Token'] || '').trim();
+  if (!token) throw new HttpError(401, 'missing device token');
+  const device = await store.getDevice(sha256(token));
   if (!device) throw new HttpError(401, 'unknown or revoked device');
   return device;
 }
@@ -103,10 +111,8 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
 
     /** POST /unpair */
     async unpair({ headers }) {
-      const auth = String(headers.authorization || '');
-      if (auth.startsWith('Bearer ')) {
-        await store.deleteDevice(sha256(auth.slice(7).trim()));
-      }
+      const token = String(headers[DEVICE_HEADER] || headers['X-Device-Token'] || '').trim();
+      if (token) await store.deleteDevice(sha256(token));
       return { ok: true };
     },
 
@@ -187,4 +193,5 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
 }
 
 module.exports = { createRelay, HttpError, sha256, newToken, newPairCode,
+                   DEVICE_HEADER,
                    timingSafeEqual, SEND_BUDGET_PER_MIN, MAX_WAIT_S };

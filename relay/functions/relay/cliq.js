@@ -9,13 +9,19 @@
  */
 
 function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch }) {
-  if (!botName || !zapikey) {
-    throw new Error('CLIQ_BOT_NAME and CLIQ_ZAPIKEY must be set');
-  }
   const base = (baseUrl || 'https://cliq.zoho.com').replace(/\/$/, '');
 
   return {
     async dm(emailOrZuid, text) {
+      // Checked here rather than at construction: the client is built for
+      // every request, so throwing early would take down pairing and
+      // long-polling too, which need no Cliq credential at all.
+      if (!botName || !zapikey) {
+        const err = new Error('relay is not connected to a Cliq bot yet '
+                            + '(CLIQ_BOT_NAME / CLIQ_ZAPIKEY unset)');
+        err.status = 503;
+        throw err;
+      }
       const url = `${base}/api/v2/bots/${encodeURIComponent(botName)}/message`
                 + `?zapikey=${encodeURIComponent(zapikey)}`;
       const res = await fetchImpl(url, {

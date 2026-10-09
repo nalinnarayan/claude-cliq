@@ -37,7 +37,7 @@ function harness(opts = {}) {
   });
   return { store, sent, relay };
 }
-const bearer = (t) => ({ authorization: `Bearer ${t}` });
+const bearer = (t) => ({ 'x-device-token': t });
 const sleep = () => Promise.resolve();
 
 async function pairUser(h, cliqUser, email) {
@@ -63,7 +63,8 @@ test('expired pairing code is refused', async () => {
 
 test('notify requires a valid device token', async () => {
   const h = harness();
-  await assert.rejects(() => h.relay.notify({ headers: {}, body: { text: 'hi' } }), /bearer/);
+  await assert.rejects(() => h.relay.notify({ headers: {}, body: { text: 'hi' } }),
+                       /missing device token/);
   await assert.rejects(
     () => h.relay.notify({ headers: bearer('garbage'), body: { text: 'hi' } }),
     /unknown or revoked/);

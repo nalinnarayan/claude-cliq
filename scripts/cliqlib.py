@@ -128,7 +128,9 @@ class Relay:
         req = urllib.request.Request(url, data=body, method=method)
         req.add_header("Content-Type", "application/json")
         if self.cfg.device_token:
-            req.add_header("Authorization", f"Bearer {self.cfg.device_token}")
+            # Not Authorization: Catalyst's gateway claims that header and
+            # rejects anything that is not one of its own OAuth tokens.
+            req.add_header("X-Device-Token", self.cfg.device_token)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode() or "{}"

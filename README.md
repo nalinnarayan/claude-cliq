@@ -173,7 +173,12 @@ The bot is discoverable org-wide, so this is the part that matters.
   parameter.** `/await` takes only the device token and the relay resolves the
   owner itself; `/notify` derives the recipient the same way, so a laptop never
   names a recipient and cannot address someone else's DM. Both properties have
-  tests that try to break them.
+  tests that try to break them, and both were re-checked against the deployed
+  relay: a second user asking for the first user's messages by name gets only
+  their own.
+- The device token travels in **`X-Device-Token`**, not `Authorization` —
+  Catalyst's gateway claims that header and rejects anything that is not one of
+  its own OAuth tokens.
 - Device tokens are 256-bit random and stored only as SHA-256 hashes.
 - Message bodies are retained only for Cliq user ids in `DEBUG_USERS`;
   everyone else's are deleted on delivery.
