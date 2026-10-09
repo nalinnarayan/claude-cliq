@@ -159,12 +159,20 @@ DEBUG_USERS            your own Cliq user id, comma separated
 Catalyst env vars are **not documented as encrypted at rest** — treat them as
 config, and rotate the zapikey if the project is ever shared.
 
-Then deploy:
+Then bind the directory to your project and deploy:
 
 ```sh
 cd relay && npm install
-catalyst deploy --only functions
+catalyst login                                  # once, for the right account
+catalyst project:use <project_id> --org <org_id>
+cp .env.deploy.example .env.deploy              # fill in, then:
+./deploy.sh
 ```
+
+`.catalystrc` is deliberately untracked — it pins one project and org, so
+everyone generates their own with `project:use`. `deploy.sh` merges
+`.env.deploy` into the function config just before deploying and strips it
+straight after, so secrets never reach a tracked file.
 
 Set function memory to **128 MB** (the default of 256 doubles the bill for
 I/O-bound work).

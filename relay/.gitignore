@@ -2,3 +2,5 @@ node_modules/
 iac/dist/
 .env.deploy
 *.bak
+.catalystrc
+.catalystrc.*
