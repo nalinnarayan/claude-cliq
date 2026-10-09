@@ -1,5 +1,6 @@
 // Bot message handler -- fires on every reply the user types to the bot.
-// Permissions needed: user, message
+// Deluge bots declare no permissions: `user` and `message` arrive
+// automatically. Keeping the code minimal keeps the consent dialog small.
 //
 // Deliberately minimal: enqueue and return. Any platform component is capped
 // at 15 seconds, and the real work (deciding what the reply means, resuming a

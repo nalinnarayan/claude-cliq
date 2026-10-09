@@ -1,6 +1,7 @@
 // Bot welcome handler -- fires when someone subscribes to the Claude Code bot.
-// Permissions needed: user  (keep it at that; every permission you ask for is
-// something each user re-consents to every 60 days).
+// Deluge bots declare no permissions: `user` is passed in automatically.
+// Cliq shows each user a consent dialog on first execution, based on what
+// the code actually touches, and that consent lapses after 60 days.
 
 response = Map();
 

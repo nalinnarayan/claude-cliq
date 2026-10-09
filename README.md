@@ -100,13 +100,15 @@ python3 cliq-extension/render.py
 
 That writes `cliq-extension/generated/`, which is untracked because the
 handlers carry `RELAY_INBOUND_SECRET`. Paste each into its handler in the bot
-builder:
+builder — `welcome_handler.dg` into the Welcome handler, `message_handler.dg`
+into the Message handler.
 
-- `welcome_handler.dg` — permissions: `user`
-- `message_handler.dg` — permissions: `user`, `message`
-
-Keep the permission list that short. Every permission a handler declares is
-something each user re-consents to **every 60 days**.
+There are no permissions to configure. That is a webhook-execution-bot concept,
+where Cliq has to be told what to put in the HTTP payload; a Deluge bot gets
+`user`, `message` and `chat` as variables automatically. Cliq instead shows each
+user a consent dialog on first execution, derived from what the code touches —
+which is why the handlers stay minimal, and why that consent **lapses every 60
+days**.
 
 ### 2. Webhook token
 
