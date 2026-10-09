@@ -97,7 +97,7 @@
           "is_mandatory": "true",
           "search_index_enabled": "false",
           "audit_consent": "false",
-          "description": "Epoch ms; codes are also deleted on first use"
+          "description": "Epoch milliseconds"
         }
       ]
     },
@@ -135,12 +135,11 @@
         },
         {
           "column_name": "ts",
-          "data_type": "double",
-          "decimal_digits": 3,
+          "data_type": "bigint",
           "is_mandatory": "true",
           "search_index_enabled": "false",
           "audit_consent": "false",
-          "description": "Epoch seconds; the long-poll cursor"
+          "description": "Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away"
         },
         {
           "column_name": "expires",
@@ -148,7 +147,8 @@
           "is_unique": "false",
           "is_mandatory": "false",
           "search_index_enabled": "false",
-          "audit_consent": "false"
+          "audit_consent": "false",
+          "description": "Epoch milliseconds"
         },
         {
           "column_name": "retain",
@@ -201,11 +201,11 @@
         },
         {
           "column_name": "ts",
-          "data_type": "double",
-          "decimal_digits": 3,
+          "data_type": "bigint",
           "is_mandatory": "false",
           "search_index_enabled": "false",
-          "audit_consent": "false"
+          "audit_consent": "false",
+          "description": "Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away"
         }
       ]
     },

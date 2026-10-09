@@ -34,7 +34,7 @@ _Short-lived one-time codes issued by the bot's welcome handler._
 | `code` | varchar | Max Length **32** | **Mandatory**, **Unique** | The code typed into /claude-cliq:pair |
 | `cliq_user` | varchar | Max Length **64** | **Mandatory** |  |
 | `email` | varchar | Max Length **255** | **Mandatory** |  |
-| `expires` | bigint | no size field | **Mandatory** | Epoch ms; codes are also deleted on first use |
+| `expires` | bigint | no size field | **Mandatory** | Epoch milliseconds |
 
 ## Pending
 
@@ -45,8 +45,8 @@ _Replies waiting to be collected by a long-poll. The hot path -- rows are delete
 | `msg_id` | varchar | Max Length **100** | **Mandatory**, **Unique** | Cliq message id; unique makes redelivery idempotent |
 | `cliq_user` | varchar | Max Length **64** | **Mandatory** | Owner; every read filters on this |
 | `body` | text | no size field | — | Reply text, deleted on delivery unless the user is on the debug allowlist |
-| `ts` | double | no size field | **Mandatory** | Epoch seconds; the long-poll cursor |
-| `expires` | bigint | no size field | — |  |
+| `ts` | bigint | no size field | **Mandatory** | Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away |
+| `expires` | bigint | no size field | — | Epoch milliseconds |
 | `retain` | boolean | no size field | — | True only for debug-allowlisted users |
 
 ## Sessions
@@ -59,7 +59,7 @@ _The last session each user was notified about, so a late reply knows what to of
 | `session_id` | varchar | Max Length **64** | **Mandatory** |  |
 | `cwd` | text | no size field | — | Working directory; Text not varchar because a truncated path would break --resume |
 | `request_id` | varchar | Max Length **16** | — |  |
-| `ts` | double | no size field | — |  |
+| `ts` | bigint | no size field | — | Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away |
 
 ## Counters
 

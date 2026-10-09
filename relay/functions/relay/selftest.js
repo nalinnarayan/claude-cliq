@@ -31,16 +31,18 @@ const PROBES = [
     table: 'Pending',
     row: () => ({
       msg_id: `selftest-${Date.now()}`, cliq_user: 'selftest',
-      body: 'selftest body', ts: Math.round(Date.now() / 10) / 100,
-      expires: Math.floor(Date.now() / 1000), retain: false,
+      body: 'selftest body', ts: Date.now(),
+      expires: Date.now() + 60000, retain: false,
     }),
     key: 'msg_id',
     // The fractional part is the whole reason ts must be a double; an
     // integer column truncates it and the long-poll cursor misbehaves.
     check: (got, sent) => {
       if (got.body !== sent.body) return 'body did not round-trip';
-      if (Math.abs(Number(got.ts) - sent.ts) > 0.005) {
-        return `ts lost precision (sent ${sent.ts}, got ${got.ts}) — is it a double?`;
+      // Must survive exactly. Catalyst's double mangles a 10-digit epoch, so
+      // this column has to be bigint.
+      if (Number(got.ts) !== sent.ts) {
+        return `ts came back as ${got.ts}, sent ${sent.ts} — must be bigint, not double`;
       }
       return true;
     },
@@ -49,7 +51,7 @@ const PROBES = [
     table: 'Sessions',
     row: () => ({
       cliq_user: `selftest-${Date.now()}`, session_id: 'abc-123',
-      cwd: '/tmp', request_id: 'abcde', ts: Date.now() / 1000,
+      cwd: '/tmp', request_id: 'abcde', ts: Date.now(),
     }),
     key: 'cliq_user',
     check: (got, sent) => got.session_id === sent.session_id,

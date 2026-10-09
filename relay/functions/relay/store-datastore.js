@@ -74,7 +74,7 @@ function createStore(app) {
         msg_id: m.id, cliq_user: m.cliq_user,
         // Bodies are kept only for the debug allowlist; for everyone else
         // the row carries just enough to deliver it, and is deleted on read.
-        body: m.text, ts: m.ts, expires: Math.floor(m.expires / 1000),
+        body: m.text, ts: m.ts, expires: m.expires,
         retain: !!m.retain,
       });
     },
@@ -82,7 +82,7 @@ function createStore(app) {
     async listPending(cliqUser, since) {
       // The TTL job only sweeps daily, so bound by time here too rather
       // than trusting expiry to have happened.
-      const cutoff = Date.now() / 1000 - 24 * 3600;
+      const cutoff = Date.now() - 24 * 3600 * 1000;
       const floor = Math.max(Number(since) || 0, cutoff);
       const found = await query(
         `SELECT ROWID, msg_id, cliq_user, body, ts FROM Pending

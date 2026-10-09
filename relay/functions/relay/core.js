@@ -151,9 +151,9 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         if (msgs.length) {
           // Pass whole rows: a composite-key store needs more than the id.
           await store.deletePending(msgs);
-          return { messages: msgs, now: now() / 1000 };
+          return { messages: msgs, now: now() };
         }
-        if (now() >= deadline) return { messages: [], now: now() / 1000 };
+        if (now() >= deadline) return { messages: [], now: now() };
         await sleep(POLL_TICK_MS);
       }
     },
@@ -175,7 +175,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         id,
         cliq_user: cliqUser,
         text: text.slice(0, MAX_TEXT),
-        ts: now() / 1000,
+        ts: now(),
         expires: now() + PENDING_TTL_MS,
         // Bodies are retained only for the debug allowlist; everyone else's
         // message is deleted the moment it is delivered.

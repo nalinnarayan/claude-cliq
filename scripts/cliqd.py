@@ -39,10 +39,17 @@ IDLE_POLL_EVERY = 30.0
 
 
 def read_cursor() -> float:
+    """Opaque cursor, in whatever unit the relay hands back (epoch ms).
+
+    Zero on a fresh daemon is deliberate, not a fallback: rows are deleted
+    the moment they are delivered, so anything still queued is undelivered
+    and should reach us. Seeding from the local clock would silently drop a
+    reply that arrived while no daemon was running.
+    """
     try:
         return float(CURSOR_PATH.read_text().strip())
     except Exception:
-        return time.time()
+        return 0.0
 
 
 def write_cursor(v: float) -> None:
