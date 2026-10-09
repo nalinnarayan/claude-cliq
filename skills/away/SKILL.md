@@ -23,4 +23,8 @@ unanswered fall back to the normal terminal prompt rather than being denied.
 If the user replies after the wait window closes, the reply is not lost — the
 daemon asks in Cliq whether to resume that session in the background.
 
+Turning away mode **off** also revokes any blanket `all` approvals the user
+granted from Cliq — those were a concession to being away, not standing
+permission. Mention that if they ask about revoking one.
+
 Mention that away mode stays on until they turn it off.

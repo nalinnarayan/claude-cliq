@@ -20,6 +20,10 @@ from cliqlib import DAEMON_LOCK, SESSIONS_DIR, WAITERS_DIR, log
 
 # "yes abcde" / "no abcde" -- a permission verdict.
 VERDICT_RE = re.compile(r"^\s*(y|yes|ok|approve|n|no|deny|reject)\b[\s:,]*([a-z]{5})?\s*$", re.I)
+# "all" / "yes all" / "approve all abcde" -- approve everything in this
+# session for a while, instead of answering each prompt one at a time.
+BLANKET_RE = re.compile(r"^\s*(?:y|yes|ok|approve|allow)?\s*all\b[\s:,]*([a-z]{5})?\s*$", re.I)
+
 # "abcde do the thing" -- an answer addressed to one waiter.
 ADDRESSED_RE = re.compile(r"^\s*([a-z]{5})\b[\s:,-]+(.+)$", re.I | re.S)
 
@@ -97,6 +101,21 @@ def route(text: str, waiters: list[dict]) -> tuple[str | None, dict | None]:
     matched -- the caller should treat it as a late reply.
     """
     ids = {w["request_id"] for w in waiters}
+
+    m = BLANKET_RE.match(text)
+    if m:
+        rid = (m.group(1) or "").lower()
+        target = rid if rid in ids else None
+        if target is None:
+            perms = [w for w in waiters if w.get("kind") == "permission"]
+            if len(perms) == 1:
+                target = perms[0]["request_id"]
+            elif len(waiters) == 1:
+                target = waiters[0]["request_id"]
+        if target:
+            return target, {"type": "verdict", "allow": True,
+                            "scope": "session", "text": text}
+        return None, None
 
     m = VERDICT_RE.match(text)
     if m:

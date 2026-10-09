@@ -15,7 +15,8 @@ import json
 import sys
 
 import hookutil as H
-from cliqlib import is_away, new_request_id
+from cliqlib import (blanket_approval_until, grant_blanket_approval,
+                     is_away, new_request_id)
 
 PREVIEW_CHARS = 700
 
@@ -48,6 +49,15 @@ def main() -> int:
     session_id = payload.get("session_id", "")
     cwd = payload.get("cwd", "")
 
+    # Already said "all" for this session: approve silently. Pinging Cliq
+    # again would defeat the entire point of having asked.
+    if session_id and blanket_approval_until(session_id):
+        H.emit({"hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "allow",
+                         "reason": "Covered by an earlier 'all' from Zoho Cliq"}}})
+        return 0
+
     rid = new_request_id()
     ctx = H.context_line(cwd)
     detail = describe(tool, tool_input)
@@ -57,7 +67,8 @@ def main() -> int:
 
     if not H.send(relay, kind="permission", text=text, request_id=rid,
                   session_id=session_id, cwd=cwd, expects_reply=True,
-                  hint=f"reply `yes {rid}` or `no {rid}`"):
+                  hint=f"`yes {rid}` · `no {rid}` · `all {rid}` "
+                       f"to approve everything for a while"):
         return 0        # relay down: fall through to the terminal prompt
 
     reply = H.block_for_reply(cfg, rid, session_id=session_id,
@@ -72,8 +83,18 @@ def main() -> int:
         return 0
 
     if reply.get("allow"):
-        decision = {"behavior": "allow",
-                    "reason": "Approved from Zoho Cliq"}
+        reason = "Approved from Zoho Cliq"
+        if reply.get("scope") == "session" and session_id:
+            until = grant_blanket_approval(session_id, cfg.blanket_approval_seconds)
+            mins = int(cfg.blanket_approval_seconds // 60)
+            reason = f"Approved from Zoho Cliq; everything in this session for {mins}m"
+            # Say plainly what was just granted -- a blanket approval the
+            # user has forgotten about is the dangerous kind.
+            H.send(relay, kind="ack", request_id=new_request_id(),
+                   text=(f"👍 Approving everything in this session for {mins} minutes.\n"
+                         f"Run `/claude-cliq:away off` to revoke it immediately."),
+                   session_id=session_id, cwd=cwd)
+        decision = {"behavior": "allow", "reason": reason}
     else:
         decision = {"behavior": "deny",
                     "reason": "Denied from Zoho Cliq"}

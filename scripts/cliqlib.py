@@ -23,6 +23,7 @@ AWAY_PATH = STATE_DIR / "away"
 SESSIONS_DIR = STATE_DIR / "sessions"
 WAITERS_DIR = STATE_DIR / "waiters"
 INBOX_PATH = STATE_DIR / "inbox.jsonl"
+APPROVALS_DIR = STATE_DIR / "approvals"
 DAEMON_LOCK = STATE_DIR / "cliqd.lock"
 LOG_PATH = STATE_DIR / "cliq.log"
 
@@ -53,6 +54,8 @@ class Config:
     # How long a hook will hold the session waiting for a reply. Past this
     # the hook releases and the late-reply path takes over.
     wait_seconds: int = 300
+    # How long a "yes to everything" reply lasts, in seconds.
+    blanket_approval_seconds: int = 1800
     # One long-poll leg. Catalyst caps a function at 30s, so stay under it.
     poll_seconds: int = 25
     enabled: bool = True
@@ -89,6 +92,43 @@ def save_config(cfg: Config) -> None:
     os.chmod(CONFIG_PATH, 0o600)
 
 
+def grant_blanket_approval(session_id: str, seconds: int) -> float:
+    """Approve everything in one session for a bounded window.
+
+    Answering six permission prompts from a phone is miserable, so a reply of
+    "all" trades a little safety for a lot of usability. Deliberately
+    bounded: one session, a time limit, and cleared the moment away mode
+    goes off.
+    """
+    APPROVALS_DIR.mkdir(parents=True, exist_ok=True)
+    until = time.time() + seconds
+    (APPROVALS_DIR / f"{session_id}.json").write_text(
+        json.dumps({"until": until, "granted": time.time()}))
+    return until
+
+
+def blanket_approval_until(session_id: str) -> float | None:
+    """Remaining blanket approval for this session, if any."""
+    p = APPROVALS_DIR / f"{session_id}.json"
+    try:
+        until = float(json.loads(p.read_text())["until"])
+    except Exception:
+        return None
+    if until < time.time():
+        p.unlink(missing_ok=True)
+        return None
+    return until
+
+
+def clear_blanket_approvals() -> int:
+    n = 0
+    if APPROVALS_DIR.exists():
+        for f in APPROVALS_DIR.glob("*.json"):
+            f.unlink(missing_ok=True)
+            n += 1
+    return n
+
+
 def is_away() -> bool:
     """Away mode is opt-in blocking. Disarmed, nothing ever holds a session."""
     return AWAY_PATH.exists()
@@ -100,6 +140,9 @@ def set_away(on: bool) -> None:
         AWAY_PATH.write_text(str(int(time.time())))
     else:
         AWAY_PATH.unlink(missing_ok=True)
+        # Coming back to the keyboard revokes any blanket approval: it was
+        # a concession to being away, not a standing permission.
+        clear_blanket_approvals()
 
 
 class RelayError(Exception):

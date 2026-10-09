@@ -51,7 +51,14 @@ Replying:
 | --- | --- |
 | `add tests too` | Fed back to Claude as your next instruction |
 | `yes abcde` / `no abcde` | Approves or denies permission request `abcde` |
+| `all abcde` | Approves **everything in that session** for 30 minutes |
 | `abcde use postgres` | Answers a specific session when several are waiting |
+
+`all` exists because a session doing unfamiliar work can ask six times in two
+minutes, and answering each from a phone is miserable. It is deliberately
+bounded — one session, half an hour, and revoked the moment you run
+`/claude-cliq:away off`. The bot tells you in the chat exactly what it granted,
+because a blanket approval you have forgotten about is the dangerous kind.
 
 A bare reply works whenever only one thing is waiting. When several are, the bot
 asks you to prefix an id.
