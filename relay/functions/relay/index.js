@@ -12,7 +12,7 @@ const express = require('express');
 const catalyst = require('zcatalyst-sdk-node');
 
 const { createRelay } = require('./core');
-const { createStore } = require('./store-catalyst');
+const { createStore } = require('./store-datastore');
 const { createCliq } = require('./cliq');
 
 const app = express();

@@ -91,19 +91,26 @@ credential the whole deployment needs.
 
 ### 3. Catalyst
 
-A new dedicated project. Create five NoSQL tables:
+A new dedicated project. Create the five Data Store tables defined in
+`relay/schema.json` — the column objects there are in exactly the shape the
+Catalyst MCP's `Create_Column` tool expects, so they can be applied directly or
+copied into the console:
 
-| Table | Partition key | Sort key |
-| --- | --- | --- |
-| `Devices` | `token_hash` | — |
-| `PairCodes` | `code` | — |
-| `Pending` | `cliq_user` | `ts_id` |
-| `Sessions` | `cliq_user` | — |
-| `Counters` | `bucket` | — |
+| Table | Holds |
+| --- | --- |
+| `Devices` | one row per paired laptop, keyed by SHA-256 of its token |
+| `PairCodes` | short-lived one-time codes from the welcome handler |
+| `Pending` | replies waiting for a long-poll; deleted on delivery |
+| `Sessions` | the last session each user was pinged about |
+| `Counters` | the per-minute send budget |
 
-Give `Pending` and `PairCodes` a TTL attribute on `expires`. The sweeper only
-runs once a day, so the code also filters on time at read — don't rely on TTL
-for correctness.
+Data Store rather than NoSQL for three reasons: the queries are plain ZCQL and
+far easier to verify, rows are inspectable in the console when someone reports a
+lost reply, and the Catalyst MCP can create the tables (it has no NoSQL tools at
+all). The trade is cost — Data Store reads are ~200x NoSQL — which is why the
+long-poll re-checks storage every 3s rather than every 400ms. That is
+imperceptible to someone who just typed a message and cuts reads per poll leg
+about sevenfold. Tune with `POLL_TICK_MS` if needed.
 
 Set these environment variables on the function:
 

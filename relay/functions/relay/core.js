@@ -15,6 +15,10 @@ const crypto = require('crypto');
 const PAIR_CODE_TTL_MS = 10 * 60 * 1000;   // a code is useless after 10 minutes
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_WAIT_S = 25;                      // Catalyst kills a function at 30s
+// How often a held long-poll re-checks storage. Every tick is a billed
+// read, and 3s of extra latency is imperceptible to someone who just
+// typed a message, so this is the cheapest knob in the system.
+const POLL_TICK_MS = Number(process.env.POLL_TICK_MS || 3000);
 const MAX_TEXT = 4500;                      // Cliq caps a message at 5000
 
 // Cliq's own ceiling is 50/min for bot messages, and it is shared across
@@ -150,7 +154,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
           return { messages: msgs, now: now() / 1000 };
         }
         if (now() >= deadline) return { messages: [], now: now() / 1000 };
-        await sleep(400);
+        await sleep(POLL_TICK_MS);
       }
     },
 
