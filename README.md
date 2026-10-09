@@ -1,0 +1,196 @@
+# claude-cliq
+
+Get pinged in Zoho Cliq when Claude Code finishes, asks you something, or needs
+permission — and reply from Cliq to keep it working.
+
+Running a long task today means babysitting the terminal: you either watch it,
+or check back every few minutes to see whether Claude stopped early. This makes
+the terminal stop being the only place a session lives.
+
+```
+Claude finishes  ──▶  Cliq DM  ──▶  you reply "add tests too"  ──▶  Claude continues
+Claude needs sudo ──▶ Cliq DM  ──▶  you reply "yes abcde"      ──▶  the command runs
+```
+
+Reply within the wait window and work continues in your terminal. Reply an hour
+later and it resumes in the background — same session, full context — and pings
+you again when it's done.
+
+## For a teammate: install
+
+1. Subscribe to the **Claude Code** bot in Cliq (sidebar `+` → Bots, or open
+   `https://cliq.zoho.com/bots/<bot_unique_name>`). It DMs you a pairing code.
+2. In your terminal:
+   ```sh
+   claude plugin marketplace add <this-repo>
+   claude plugin install claude-cliq
+   ```
+3. Pair this machine, using the code from the DM:
+   ```
+   /claude-cliq:pair <code>
+   ```
+4. When you step away:
+   ```
+   /claude-cliq:away on
+   ```
+
+No OAuth app, no API console, no tokens to mint. Your laptop never holds a Cliq
+credential — only a device token for the relay.
+
+## Using it
+
+**Away off** (the default) — every trigger still DMs you, nothing ever blocks,
+and the terminal behaves exactly as it would without this installed.
+
+**Away on** — Claude waits for your reply before finishing a turn or acting on a
+permission request.
+
+Replying:
+
+| You type | What happens |
+| --- | --- |
+| `add tests too` | Fed back to Claude as your next instruction |
+| `yes abcde` / `no abcde` | Approves or denies permission request `abcde` |
+| `abcde use postgres` | Answers a specific session when several are waiting |
+
+A bare reply works whenever only one thing is waiting. When several are, the bot
+asks you to prefix an id.
+
+Permission requests that go unanswered fall back to the normal terminal prompt —
+they are never auto-denied.
+
+## What triggers a ping
+
+| Trigger | Hook | Blocks? |
+| --- | --- | --- |
+| Task finished / Claude asked something | `Stop` | only when away |
+| Permission request, plan approval, next phase | `PermissionRequest` | only when away |
+| A tool failed | `PostToolUseFailure` | never |
+| Session idle and waiting on you | `Notification` (`idle_prompt`) | never |
+
+## For the maintainer: one-time setup
+
+### 1. Cliq bot
+
+Cliq → **Bots & Tools → Bots → Create**. Set **Access Level = Organization**
+(it defaults to Private). Note the `unique_name` from the bot's API endpoint URL.
+
+Add two handlers from `cliq-extension/`, replacing the `REPLACE_WITH_*` markers:
+
+- `welcome_handler.dg` — permissions: `user`
+- `message_handler.dg` — permissions: `user`, `message`
+
+Keep the permission list that short. Every permission a handler declares is
+something each user re-consents to **every 60 days**.
+
+### 2. Webhook token
+
+Cliq → **Bots & Tools → Webhook Tokens** (2FA-gated; the session expires after
+15 minutes, max 5 tokens per user). This single token is the only Cliq
+credential the whole deployment needs.
+
+### 3. Catalyst
+
+A new dedicated project. Create five NoSQL tables:
+
+| Table | Partition key | Sort key |
+| --- | --- | --- |
+| `Devices` | `token_hash` | — |
+| `PairCodes` | `code` | — |
+| `Pending` | `cliq_user` | `ts_id` |
+| `Sessions` | `cliq_user` | — |
+| `Counters` | `bucket` | — |
+
+Give `Pending` and `PairCodes` a TTL attribute on `expires`. The sweeper only
+runs once a day, so the code also filters on time at read — don't rely on TTL
+for correctness.
+
+Set these environment variables on the function:
+
+```
+CLIQ_BOT_NAME          the bot's unique_name
+CLIQ_ZAPIKEY           the webhook token from step 2
+CLIQ_BASE_URL          https://cliq.zoho.com   (or .in for that data centre)
+RELAY_INBOUND_SECRET   a long random string, also pasted into both handlers
+DEBUG_USERS            your own Cliq user id, comma separated
+```
+
+Catalyst env vars are **not documented as encrypted at rest** — treat them as
+config, and rotate the zapikey if the project is ever shared.
+
+Then deploy:
+
+```sh
+cd relay && npm install
+catalyst deploy --only functions
+```
+
+Set function memory to **128 MB** (the default of 256 doubles the bill for
+I/O-bound work).
+
+### 4. Publish the extension
+
+Cliq → **Bots & Tools → Extensions → Publish**, and do **not** tick the
+Marketplace checkbox. That gives a private install link for your org and skips
+Zoho's review entirely. An org admin installs it once; after that anyone can
+subscribe.
+
+Existing staff must subscribe themselves — Cliq's default-bot assignment only
+fires when someone joins the org, and there is no bulk-subscribe API.
+
+## Local development
+
+The whole laptop side runs against a mock relay with no Zoho account at all:
+
+```sh
+python3 scripts/mockrelay.py &                       # prints "DMs" to the console
+CODE=$(curl -s localhost:8899/newcode | python3 -c 'import json,sys;print(json.load(sys.stdin)["code"])')
+CLAUDE_CLIQ_HOME=/tmp/cliqtest python3 scripts/cliqctl.py pair $CODE --relay http://127.0.0.1:8899
+CLAUDE_CLIQ_HOME=/tmp/cliqtest python3 scripts/cliqctl.py away on
+python3 scripts/mockrelay.py --say "your reply"      # act as the user in Cliq
+```
+
+Relay logic has its own tests, including the cross-user isolation checks:
+
+```sh
+cd relay && node --test test/core.test.js
+```
+
+## How isolation works
+
+The bot is discoverable org-wide, so this is the part that matters.
+
+- **Identity comes from Cliq, never from the laptop.** Cliq invokes the handler
+  and supplies the sender's user id server-side.
+- **Authorization is derived from the credential, never from a request
+  parameter.** `/await` takes only the device token and the relay resolves the
+  owner itself; `/notify` derives the recipient the same way, so a laptop never
+  names a recipient and cannot address someone else's DM. Both properties have
+  tests that try to break them.
+- Device tokens are 256-bit random and stored only as SHA-256 hashes.
+- Message bodies are retained only for Cliq user ids in `DEBUG_USERS`;
+  everyone else's are deleted on delivery.
+
+A stolen device token would let someone read that one user's pings. The config
+file is `0600` and `/claude-cliq:pair` revokes any previous token.
+
+## Known limits
+
+- **50 bot messages/min is a global ceiling**, shared across every user, because
+  the relay posts under one token identity. The relay budgets 40 and sheds the
+  rest — breaching it locks everyone out for 10 minutes.
+- **Deluge consent expires every 60 days** per user. It presents as the bot
+  going quiet; re-subscribing fixes it.
+- `--bg --resume` **requires a trusted workspace**. The home directory never
+  qualifies. Open the folder once with `claude` and accept the prompt.
+- Cliq does not redeliver a failed handler call, so a dropped reply is dropped.
+
+## Layout
+
+```
+scripts/      laptop side: hooks, daemon, CLI, mock relay   (python3 stdlib only)
+relay/        Catalyst Advanced I/O function + tests        (node)
+cliq-extension/  the two Deluge handlers
+hooks/        hook registrations
+skills/       /claude-cliq:pair and :away
+```

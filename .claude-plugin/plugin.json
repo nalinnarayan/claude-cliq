@@ -1,0 +1,6 @@
+{
+  "name": "claude-cliq",
+  "description": "Get pinged in Zoho Cliq when Claude Code finishes, asks a question, or needs permission — and reply from Cliq to keep it working.",
+  "version": "0.1.0",
+  "keywords": ["zoho", "cliq", "notifications", "remote", "approval"]
+}

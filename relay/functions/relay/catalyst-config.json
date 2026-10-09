@@ -1,0 +1,10 @@
+{
+  "deployment": {
+    "type": "advancedio",
+    "stack": "node20",
+    "name": "relay",
+    "memory": 128,
+    "description": "Claude Code <-> Zoho Cliq relay"
+  },
+  "note": "memory 128 halves the GB-second bill vs the 256 default for I/O-bound work"
+}

@@ -1,0 +1,187 @@
+"""Waiter registry: how a blocked hook and the machine's single daemon meet.
+
+A hook that wants an answer arms a waiter file and then watches that file.
+The daemon holds the one long-poll for the whole machine and writes answers
+into waiter files. Hooks never talk to the relay while waiting, which is
+what keeps N concurrent sessions down to one in-flight relay request.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from cliqlib import DAEMON_LOCK, SESSIONS_DIR, WAITERS_DIR, log
+
+# "yes abcde" / "no abcde" -- a permission verdict.
+VERDICT_RE = re.compile(r"^\s*(y|yes|ok|approve|n|no|deny|reject)\b[\s:,]*([a-z]{5})?\s*$", re.I)
+# "abcde do the thing" -- an answer addressed to one waiter.
+ADDRESSED_RE = re.compile(r"^\s*([a-z]{5})\b[\s:,-]+(.+)$", re.I | re.S)
+
+_AFFIRMATIVE = {"y", "yes", "ok", "approve"}
+
+
+def _path(request_id: str) -> Path:
+    return WAITERS_DIR / f"{request_id}.json"
+
+
+def arm(request_id: str, *, session_id: str, kind: str, cwd: str) -> Path:
+    WAITERS_DIR.mkdir(parents=True, exist_ok=True)
+    p = _path(request_id)
+    p.write_text(json.dumps({
+        "request_id": request_id,
+        "session_id": session_id,
+        "kind": kind,
+        "cwd": cwd,
+        "pid": os.getpid(),
+        "armed_at": time.time(),
+    }))
+    return p
+
+
+def disarm(request_id: str) -> None:
+    _path(request_id).unlink(missing_ok=True)
+
+
+def resolve(request_id: str, payload: dict) -> bool:
+    """Daemon side: hand an answer to a waiting hook."""
+    p = _path(request_id)
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        return False
+    data["resolved"] = payload
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    tmp.replace(p)
+    return True
+
+
+def active() -> list[dict]:
+    out = []
+    if not WAITERS_DIR.exists():
+        return out
+    for p in sorted(WAITERS_DIR.glob("*.json")):
+        try:
+            out.append(json.loads(p.read_text()))
+        except Exception:
+            continue
+    return out
+
+
+def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
+    """Block until the daemon resolves this waiter, or the deadline passes."""
+    p = _path(request_id)
+    while time.time() < deadline:
+        try:
+            data = json.loads(p.read_text())
+        except Exception:
+            data = {}
+        if "resolved" in data:
+            disarm(request_id)
+            return data["resolved"]
+        time.sleep(tick)
+    disarm(request_id)
+    return None
+
+
+def route(text: str, waiters: list[dict]) -> tuple[str | None, dict | None]:
+    """Decide which armed waiter a Cliq reply belongs to.
+
+    Returns (request_id, payload). A (None, None) result means nothing
+    matched -- the caller should treat it as a late reply.
+    """
+    ids = {w["request_id"] for w in waiters}
+
+    m = VERDICT_RE.match(text)
+    if m:
+        word, rid = m.group(1).lower(), (m.group(2) or "").lower()
+        allow = word in _AFFIRMATIVE
+        if rid and rid in ids:
+            return rid, {"type": "verdict", "allow": allow, "text": text}
+        perms = [w for w in waiters if w.get("kind") == "permission"]
+        if not rid and len(perms) == 1:
+            return perms[0]["request_id"], {"type": "verdict", "allow": allow, "text": text}
+        if not rid and len(waiters) == 1:
+            return waiters[0]["request_id"], {"type": "verdict", "allow": allow, "text": text}
+        return None, None
+
+    m = ADDRESSED_RE.match(text)
+    if m and m.group(1).lower() in ids:
+        return m.group(1).lower(), {"type": "answer", "text": m.group(2).strip()}
+
+    if len(waiters) == 1:
+        return waiters[0]["request_id"], {"type": "answer", "text": text.strip()}
+
+    return None, None
+
+
+def ensure_daemon() -> None:
+    """Start the machine's daemon if it isn't already holding the lock."""
+    if _daemon_alive():
+        return
+    script = Path(__file__).with_name("cliqd.py")
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        log(f"could not start daemon: {exc}")
+
+
+def _daemon_alive() -> bool:
+    import fcntl
+    if not DAEMON_LOCK.exists():
+        return False
+    try:
+        with DAEMON_LOCK.open("r+") as fh:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True          # someone holds it: daemon is up
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            return False
+    except Exception:
+        return False
+
+
+# -- session liveness -------------------------------------------------------
+
+def register_session(session_id: str, cwd: str) -> None:
+    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    (SESSIONS_DIR / f"{session_id}.json").write_text(json.dumps({
+        "session_id": session_id, "cwd": cwd,
+        "pid": os.getppid(), "started": time.time(),
+    }))
+
+
+def unregister_session(session_id: str) -> None:
+    (SESSIONS_DIR / f"{session_id}.json").unlink(missing_ok=True)
+
+
+def session_live(session_id: str) -> bool:
+    """True if that session still has a running process.
+
+    Used to avoid `--bg --resume` against a live session, which forks a copy
+    instead of continuing it.
+    """
+    p = SESSIONS_DIR / f"{session_id}.json"
+    try:
+        pid = json.loads(p.read_text())["pid"]
+    except Exception:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        p.unlink(missing_ok=True)
+        return False

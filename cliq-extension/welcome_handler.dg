@@ -1,0 +1,39 @@
+// Bot welcome handler -- fires when someone subscribes to the Claude Code bot.
+// Permissions needed: user  (keep it at that; every permission you ask for is
+// something each user re-consents to every 60 days).
+
+response = Map();
+
+payload = Map();
+payload.put("cliq_user", user.get("id"));
+payload.put("email", user.get("email"));
+
+headers = Map();
+headers.put("Content-Type", "application/json");
+headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
+
+result = invokeurl
+[
+	url: "REPLACE_WITH_RELAY_BASE/issue-code"
+	type: POST
+	parameters: payload.toString()
+	headers: headers
+];
+
+code = result.get("code");
+
+if(code == null)
+{
+	response.put("text", "I couldn't generate a pairing code just now. Try unsubscribing and subscribing again, or ping the maintainer.");
+	return response;
+}
+
+msg = "👋 You're subscribed. Two steps to connect this to Claude Code:\n\n";
+msg = msg + "1. In your terminal:\n";
+msg = msg + "```\nclaude plugin marketplace add REPLACE_WITH_REPO\nclaude plugin install claude-cliq\n```\n";
+msg = msg + "2. Then pair this machine:\n";
+msg = msg + "```\n/claude-cliq:pair " + code + "\n```\n\n";
+msg = msg + "The code is good for 10 minutes. Once paired, run `/claude-cliq:away on` whenever you step away and I'll ping you here.";
+
+response.put("text", msg);
+return response;
