@@ -70,12 +70,37 @@ they are never auto-denied.
 
 ## For the maintainer: one-time setup
 
-### 1. Cliq bot
+### 1. Cliq bot — start private
 
-Cliq → **Bots & Tools → Bots → Create**. Set **Access Level = Organization**
-(it defaults to Private). Note the `unique_name` from the bot's API endpoint URL.
+Cliq → **Bots & Tools → Bots → Create**. **Leave Access Level at Private**,
+which is the default. Note the `unique_name` from the bot's API endpoint URL.
 
-Add two handlers from `cliq-extension/`, replacing the `REPLACE_WITH_*` markers:
+Private means only you can see or subscribe to it, so the whole loop can be
+exercised without anyone else encountering a half-built bot. Flipping it to
+**Organization** later is a single setting and needs no code change — the relay
+never cares about visibility, only about who holds a device token.
+
+Rolling out in two phases:
+
+| | Private (now) | Organization (later) |
+| --- | --- | --- |
+| Who can subscribe | just you | anyone in the org |
+| `DEBUG_USERS` | your Cliq user id | same — body logging stays yours alone |
+| Relay / plugin code | unchanged | unchanged |
+
+Before flipping, make sure the pieces that only matter with real users are in
+place: the send budget guards Cliq's shared 50/min ceiling, and bodies are
+stored only for ids in `DEBUG_USERS`.
+
+Generate the two handlers with your real relay URL and secret already in them:
+
+```sh
+python3 cliq-extension/render.py
+```
+
+That writes `cliq-extension/generated/`, which is untracked because the
+handlers carry `RELAY_INBOUND_SECRET`. Paste each into its handler in the bot
+builder:
 
 - `welcome_handler.dg` — permissions: `user`
 - `message_handler.dg` — permissions: `user`, `message`
