@@ -275,7 +275,22 @@ def should_keep_running() -> bool:
     return PENDING_RESUME.exists() or bool(_read_held())
 
 
+def _log_signal(signum, _frame):
+    """Without this a kill leaves no trace, and a daemon that is simply gone
+    looks identical to one that never started."""
+    import signal as _sig
+    log(f"daemon received {_sig.Signals(signum).name} — exiting")
+    raise SystemExit(0)
+
+
 def main() -> int:
+    import signal
+    for _s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        try:
+            signal.signal(_s, _log_signal)
+        except Exception:
+            pass
+
     cfg: Config = load_config()
     if not cfg.paired or not cfg.enabled:
         return 0
