@@ -168,8 +168,12 @@ def handle_unmatched(relay: Relay, text: str) -> None:
     """A reply nothing was waiting for: the late-reply path."""
     pending = _take_pending_resume()
     if pending:
+        # bound=True: this id was matched explicitly against the pending
+        # confirmation, so it is not a guess. Without it the verdict is
+        # filtered out as an unbound permission reply and the confirmation
+        # becomes unanswerable.
         rid, payload = waiter.route(text, [{"request_id": pending["request_id"],
-                                            "kind": "permission"}])
+                                            "kind": "permission"}], bound=True)
         if payload and payload.get("type") == "verdict":
             if not payload["allow"]:
                 _notify(relay, "Left it alone.", kind="ack")
@@ -209,7 +213,9 @@ def handle_unmatched(relay: Relay, text: str) -> None:
             f"That session in {where} has gone idle.\n"
             f"Resume it in the background with your reply?",
             kind="confirm", request_id=rid,
-            hint=f"reply `yes {rid}` or `no {rid}`")
+            answers=[{"label": "Resume", "value": "allow"},
+                     {"label": "Leave it", "value": "deny"}],
+            hint="tap one")
 
 
 def ask_which(relay: Relay, text: str, armed: list[dict]) -> None:
