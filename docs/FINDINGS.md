@@ -229,3 +229,20 @@ caption silently failed: the relay rejected it for missing text.
 `attachment_access_time_expired` within minutes. `attachments` also holds the
 Deluge *file object*, which `invokeurl` can upload directly with `files:` —
 the durable route if images are ever forwarded on.
+
+## The idle notification is noise in away mode
+
+`Notification` with `idle_prompt` fires whenever the session sits at the
+prompt. In away mode that is true in exactly the two states the bridge
+already reports — holding for a reply, or released at the Q&A ceiling — so it
+only ever duplicated a message the user had just had, and its wording ("may be
+waiting on you") implied an action that did not exist.
+
+Removed. Errors still arrive via `PostToolUseFailure`.
+
+The same episode exposed a wording bug worth keeping in mind: the held-reply
+path told the user "Claude's still working" whenever the session was alive
+with nothing armed. Usually true, but not when the session has been released
+at the ceiling — and claiming to know a state we cannot observe reads as the
+bridge being confused. It now says only what it does: the reply is kept and
+will be passed on at the next pause.

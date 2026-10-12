@@ -193,8 +193,12 @@ def handle_unmatched(relay: Relay, text: str) -> None:
         # Hold the reply and hand it over the moment it next pauses, instead
         # of throwing it away and telling them to use the terminal.
         hold_reply(text, session_id)
-        _notify(relay, "Claude's still working — I'll pass that on the moment "
-                       "it pauses.", kind="ack")
+        # Deliberately does not claim to know whether Claude is mid-task or
+        # idle at the prompt -- we cannot tell from here, and guessing wrong
+        # reads as the bridge being confused.
+        _notify(relay, "Nothing's waiting on a reply just now — I've kept "
+                       "that and will pass it on when Claude next pauses.",
+                kind="ack")
         return
 
     rid = new_request_id()

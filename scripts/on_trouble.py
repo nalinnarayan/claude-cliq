@@ -2,7 +2,13 @@
 """Error and stuck notifications. Fire-and-forget: never blocks a session.
 
     on_trouble.py failure     <- PostToolUseFailure
-    on_trouble.py idle        <- Notification (idle_prompt)
+    on_trouble.py idle        <- unused: see hooks.json
+
+The idle branch is kept for manual use but no longer wired to
+Notification/idle_prompt. In away mode that notification fires whenever the
+session sits at the prompt, which is both of the states the bridge already
+reports -- holding for a reply, or released at the Q&A ceiling -- so it only
+ever duplicated a message the user had already had.
 """
 
 from __future__ import annotations

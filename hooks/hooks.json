@@ -43,19 +43,6 @@
         ]
       }
     ],
-    "Notification": [
-      {
-        "matcher": "idle_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_trouble.py\" idle",
-            "timeout": 15,
-            "async": true
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [
