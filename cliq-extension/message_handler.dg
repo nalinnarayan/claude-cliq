@@ -1,81 +1,82 @@
 // Bot message handler -- fires on every reply the user types to the bot.
 //
-// Everything useful is in `message_details`, NOT in the bare `message`
+// Everything useful is in `message_details`, NOT the bare `message`
 // variable, which is empty for an attachment and carries no reply context:
 //
 //   message_details.message.text              typed text
 //   message_details.message.comment           caption, when a file is attached
 //   message_details.message.replied_message   the message a swipe-reply answers
-//   message_details.message.file              {name, id, type, url}
 //
-// `replied_message.text` is what binds a reply to its request: our outbound
-// messages carry "(id xxxxx)", so the id comes back with the reply and no
-// one has to type it.
+// `replied_message.text` is what binds a reply to its request: outbound
+// messages carry "(id xxxxx)", so the id comes back and no one types it.
+//
+// Deluge wants ONE return at the top level -- a return inside a try does not
+// count, and the compiler reports it against the `try` line, which is
+// thoroughly misleading. Hence the single `return response` at the end.
+//
+// Avoided on purpose: `left()` and `trim()` on these values, which error at
+// runtime. Everything is forced through toString() instead.
 
-md = message_details.get("message");
-mtype = md.get("type");
-
-body = "";
-if(mtype == "attachment")
-{
-	body = md.get("comment");
-}
-else
-{
-	body = md.get("text");
-}
-if(body == null)
-{
-	body = "";
-}
-
-repliedText = "";
-replied = md.get("replied_message");
-if(replied != null)
-{
-	repliedText = replied.get("text");
-	if(repliedText == null)
-	{
-		repliedText = "";
-	}
-}
-
-if(body.trim() == "" && repliedText.trim() == "")
-{
-	response = Map();
-	response.put("text", "I couldn't read that one — send it as text or as a file with a caption.");
-	return response;
-}
-
-payload = Map();
-payload.put("cliq_user", user.get("id"));
-payload.put("text", body);
-// Sent whole; the relay pulls the request id out of it.
-payload.put("replied_text", repliedText.left(400));
-
-headers = Map();
-headers.put("Content-Type", "application/json");
-headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
-
-// Wrapped: an unhandled invokeurl failure aborts the whole script silently,
-// which looks identical to the handler never running.
+response = Map();
 try
 {
-	invokeurl
-	[
-		url: "REPLACE_WITH_RELAY_BASE/cliq-inbound"
-		type: POST
-		parameters: payload.toString()
-		headers: headers
-	];
+	md = message_details.get("message");
+	mtype = md.get("type");
+
+	body = "";
+	if(mtype == "attachment")
+	{
+		body = md.get("comment");
+	}
+	else
+	{
+		body = md.get("text");
+	}
+	if(body == null)
+	{
+		body = "";
+	}
+	body = body.toString();
+
+	repliedText = "";
+	replied = md.get("replied_message");
+	if(replied != null)
+	{
+		rt = replied.get("text");
+		if(rt != null)
+		{
+			repliedText = rt.toString();
+		}
+	}
+
+	if(body == "" && repliedText == "")
+	{
+		response.put("text", "I couldn't read that one — send it as text, or as a file with a caption.");
+	}
+	else
+	{
+		payload = Map();
+		payload.put("cliq_user", user.get("id"));
+		payload.put("text", body);
+		payload.put("replied_text", repliedText);
+
+		headers = Map();
+		headers.put("Content-Type", "application/json");
+		headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
+
+		invokeurl
+		[
+			url: "REPLACE_WITH_RELAY_BASE/cliq-inbound"
+			type: POST
+			parameters: payload.toString()
+			headers: headers
+		];
+		// Deliberately silent on success. The laptop answers in its own
+		// time; an immediate "got it" would be noise on every reply.
+	}
 }
 catch (e)
 {
-	response = Map();
 	response.put("text", "Couldn't reach Claude Code just now: " + e.toString());
-	return response;
 }
-
-// Returning an empty map posts nothing back. The laptop answers in its own
-// time -- an immediate "got it" here would just be noise on every reply.
-return Map();
+return response;

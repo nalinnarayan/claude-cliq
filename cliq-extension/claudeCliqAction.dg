@@ -18,23 +18,21 @@ headers = Map();
 headers.put("Content-Type", "application/json");
 headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
 
-reply = "";
+// One return at the top level: Deluge does not count a return inside a try.
+response = Map();
 try
 {
-	result = invokeurl
+	invokeurl
 	[
 		url: "REPLACE_WITH_RELAY_BASE/cliq-action"
 		type: POST
 		parameters: payload.toString()
 		headers: headers
 	];
-	reply = "✓ sent — " + arguments.get("ans");
+	response.put("text", "✓ " + arguments.get("ans"));
 }
 catch (e)
 {
-	reply = "Couldn't reach Claude Code: " + e.toString();
+	response.put("text", "Couldn't reach Claude Code: " + e.toString());
 }
-
-response = Map();
-response.put("text", reply);
 return response;
