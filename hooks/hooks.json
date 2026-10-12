@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_stop.py\"",
-            "timeout": 900,
+            "timeout": 2100,
             "statusMessage": "Checking Zoho Cliq for a reply\u2026"
           }
         ]
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_permission.py\"",
-            "timeout": 900,
+            "timeout": 2100,
             "statusMessage": "Asking for approval in Zoho Cliq\u2026"
           }
         ]

@@ -140,8 +140,11 @@ def handle_unmatched(relay: Relay, text: str) -> None:
 
     session_id, cwd = last["session_id"], last.get("cwd", "")
     if waiter.session_live(session_id):
-        _notify(relay, "That session is still open in your terminal — "
-                       "answer it there and it'll keep going.", kind="ack")
+        where = cwd.replace(str(Path.home()), "~") or "that session"
+        _notify(relay,
+                f"That session waited and has let go — too long idle to pick "
+                f"your reply up from here.\n\nIt's still open in your terminal "
+                f"at {where}. Carry on there and it'll keep going.", kind="ack")
         return
 
     rid = new_request_id()

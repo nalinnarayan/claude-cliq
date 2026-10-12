@@ -54,12 +54,12 @@ class Config:
     device_token: str = ""
     # How long a hook holds the session waiting for a reply.
     #
-    # Ten minutes, not five: past this the session is released, and if it is
-    # an interactive terminal still sitting at the prompt there is no way to
-    # deliver a later reply into it -- resuming would fork a copy. Away mode
-    # is opt-in, so a long hold costs nothing when you are actually away.
-    # The hook itself is registered at 900s, so this can go to ~840.
-    wait_seconds: int = 600
+    # Thirty minutes: long enough to cover a meeting, which is the realistic
+    # away case. Past this the session is released, and an interactive
+    # terminal sitting at the prompt cannot be fed from outside -- resuming
+    # would fork a copy. The clock restarts on every reply, so this bounds a
+    # single gap, not the conversation. Hook is registered at 2100s.
+    wait_seconds: int = 1800
     # How long a "yes to everything" reply lasts, in seconds.
     blanket_approval_seconds: int = 1800
     # Release the session after this many consecutive no-tool-call blocks.

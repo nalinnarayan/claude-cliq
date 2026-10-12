@@ -9,6 +9,11 @@ read from docs. The probe harness is in `probe/`.
 | --- | --- | --- |
 | 20s | 30s | killed at 20s — the `end` marker never wrote |
 | 700s | 640s | ran the full 640s and completed |
+| 3600s | 950s | ran the full 950s and completed |
+
+No hidden ceiling: the configured value is simply honoured. Hooks are
+registered at 2100s, giving the 30-minute wait window five minutes of
+headroom.
 
 So a blocking hook can hold a session well past the 600s default. The plugin
 registers `Stop` and `PermissionRequest` at 900s, with the actual wait window

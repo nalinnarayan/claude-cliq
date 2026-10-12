@@ -48,10 +48,10 @@ def main() -> int:
     if armed:
         hint = f"reply to keep it going (id `{rid}`)"
     elif at_ceiling:
-        # Said plainly: this is the one case where the session really does
-        # let go, and a reply afterwards takes the resume path instead.
-        hint = ("this session has gone back-and-forth a while, so I'm letting "
-                "it go — reply and I'll offer to resume it in the background")
+        # Say what the limit is and what to do, rather than just going quiet.
+        hint = (f"that's {cfg.max_block_streak} replies in a row without me "
+                "touching any files — the limit for back-and-forth here. "
+                "Carry on at the terminal; working sessions aren't capped.")
     else:
         hint = ""
 
