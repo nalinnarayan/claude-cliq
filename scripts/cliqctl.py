@@ -43,7 +43,7 @@ def cmd_pair(args) -> int:
     save_config(cfg)
     print(f"Paired with {res.get('cliq_user', 'your Cliq account')}.")
     print(f"Token stored in {CONFIG_PATH} (0600).")
-    print("Run `/cliq:away on` when you step away and Claude will wait for "
+    print("Run `/claude-cliq:away on` when you step away and Claude will wait for "
           "your replies in Cliq.")
     return 0
 
@@ -91,7 +91,7 @@ def cmd_status(args) -> int:
 def cmd_test(args) -> int:
     cfg = load_config()
     if not cfg.paired:
-        print("Not paired yet. Run `/cliq:pair <code>` first.")
+        print("Not paired yet. Run `/claude-cliq:pair <code>` first.")
         return 1
     rid = new_request_id()
     try:
