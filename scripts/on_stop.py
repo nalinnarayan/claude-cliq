@@ -16,10 +16,11 @@ from cliqlib import is_away, new_request_id
 
 def main() -> int:
     payload = H.read_payload()
-    # Claude Code sets this once we have already pushed it back to work with
-    # no tool call in between. Returning `block` again here would spin.
-    if payload.get("stop_hook_active"):
-        return 0
+    # True on the Stop immediately after we pushed Claude back to work with no
+    # tool call in between. It must stop us BLOCKING again -- otherwise the
+    # session spins -- but it must not stop us reporting the result, or every
+    # answer to a follow-up asked from Cliq vanishes silently.
+    resumed = bool(payload.get("stop_hook_active"))
 
     cfg, relay = H.ready()
     if not cfg:
@@ -31,14 +32,24 @@ def main() -> int:
     if not body:
         return 0
 
-    armed = is_away()
+    # Never hold the session twice in a row: that is what `resumed` guards.
+    armed = is_away() and not resumed
     rid = new_request_id()
     ctx = H.context_line(cwd)
-    text = f"✅ Claude finished — {ctx}\n\n{body}" if ctx else f"✅ Claude finished\n\n{body}"
+    lead = "💬 Answered" if resumed else "✅ Claude finished"
+    text = f"{lead} — {ctx}\n\n{body}" if ctx else f"{lead}\n\n{body}"
+
+    if resumed:
+        # Released rather than held, so say how to keep going: a reply now
+        # takes the late-reply path and resumes the session in the background.
+        hint = "reply to pick this up again"
+    elif armed:
+        hint = f"reply to keep it going (id `{rid}`)"
+    else:
+        hint = ""
 
     H.send(relay, kind="finished", text=text, request_id=rid,
-           session_id=session_id, cwd=cwd, expects_reply=armed,
-           hint=(f"reply to keep it going (id `{rid}`)" if armed else ""))
+           session_id=session_id, cwd=cwd, expects_reply=armed, hint=hint)
 
     if not armed:
         return 0

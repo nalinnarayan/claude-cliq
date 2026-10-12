@@ -57,3 +57,26 @@ Cliq's v2 docs describe `userids` as targeting *subscribers*, and v3 defines
 `bot_unauthorized_message_access`. Users subscribe as part of onboarding, so
 this is probably moot — but pairing would break if a code were ever sent to a
 non-subscriber.
+
+## `stop_hook_active` must not suppress the notification
+
+It goes true on the Stop immediately after the hook returned
+`{"decision":"block"}`, when Claude answered with no tool call in between.
+It exists to prevent an infinite block loop.
+
+Guarding the whole hook with it is wrong, and the bug is quiet: the first
+answer reaches Cliq, and then every answer to a follow-up asked *from* Cliq
+is swallowed. The session looks like it stopped responding.
+
+The two concerns are separate:
+
+| `stop_hook_active` | away | notifies | blocks |
+| --- | --- | --- | --- |
+| false | off | yes | no |
+| false | on | yes | **yes** |
+| true | off | yes | no |
+| true | on | yes | no |
+
+Notify always; block only when away mode is on *and* we did not just block.
+A reply to the released message still works — it takes the late-reply path
+and resumes the session in the background.
