@@ -31,7 +31,7 @@ function relayFor(req) {
       zapikey: process.env.CLIQ_ZAPIKEY,
     }),
     inboundSecret: process.env.RELAY_INBOUND_SECRET,
-    fnName: process.env.CLIQ_FUNCTION_NAME || 'claude_cliq_action',
+    fnName: process.env.CLIQ_FUNCTION_NAME || 'claudeCliqAction',
     // Optional for the function's creator, required for everyone else.
     fnOwner: process.env.CLIQ_FUNCTION_OWNER || '',
     debugUsers: (process.env.DEBUG_USERS || '').split(',').map((s) => s.trim()).filter(Boolean),

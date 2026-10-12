@@ -78,11 +78,11 @@ def context_line(cwd: str) -> str:
 
 def send(relay: Relay, *, kind: str, text: str, request_id: str,
          session_id: str = "", cwd: str = "", expects_reply: bool = False,
-         hint: str = "") -> bool:
+         hint: str = "", answers: list[dict] | None = None) -> bool:
     try:
         relay.notify(kind=kind, text=text, request_id=request_id,
                      session_id=session_id, cwd=cwd,
-                     expects_reply=expects_reply, hint=hint)
+                     expects_reply=expects_reply, hint=hint, answers=answers)
         if session_id:
             cliqd.note_notified(session_id, cwd)
         return True

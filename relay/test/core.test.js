@@ -203,11 +203,11 @@ test('answers become buttons carrying the request id', () => {
   const { buildButtons } = require('../functions/relay/core.js');
   const btns = buildButtons('abcde', [
     { label: 'Allow', value: 'allow' }, { label: 'Deny', value: 'deny' },
-  ], { fnName: 'claude_cliq_action', fnOwner: 'me@z.com' });
+  ], { fnName: 'claudeCliqAction', fnOwner: 'me@z.com' });
   assert.strictEqual(btns.length, 2);
   assert.deepStrictEqual(btns[0].arguments, { req: 'abcde', ans: 'allow' });
   assert.strictEqual(btns[0].action.type, 'invoke.function');
-  assert.strictEqual(btns[0].action.data.name, 'claude_cliq_action');
+  assert.strictEqual(btns[0].action.data.name, 'claudeCliqAction');
   // Required for anyone who did not create the function.
   assert.strictEqual(btns[0].action.data.owner, 'me@z.com');
 });

@@ -101,7 +101,7 @@ def active() -> list[dict]:
     if not WAITERS_DIR.exists():
         return out
     now = time.time()
-    for p in sorted(WAITERS_DIR.glob("*.json")):
+    for p in WAITERS_DIR.glob("*.json"):
         try:
             data = json.loads(p.read_text())
         except Exception:
@@ -114,6 +114,9 @@ def active() -> list[dict]:
             p.unlink(missing_ok=True)
             continue
         out.append(data)
+    # Newest first: "the most recent request" is a meaningful notion, where
+    # ordering by the random request id was not.
+    out.sort(key=lambda w: w.get("armed_at", 0), reverse=True)
     return out
 
 
@@ -149,13 +152,24 @@ def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
     return None
 
 
-def route(text: str, waiters: list[dict]) -> tuple[str | None, dict | None]:
+def route(text: str, waiters: list[dict], *, bound: bool = False
+          ) -> tuple[str | None, dict | None]:
     """Decide which armed waiter a Cliq reply belongs to.
 
+    `bound` means the reply already named its request -- a button tap, or a
+    swipe-reply carrying the id back. Only a bound reply may answer a
+    permission: a typed "yes" must never approve a command, because there is
+    no way to be sure which request the person meant.
+
     Returns (request_id, payload). A (None, None) result means nothing
-    matched -- the caller should treat it as a late reply.
+    matched -- the caller decides what to ask.
     """
     ids = {w["request_id"] for w in waiters}
+    if not bound:
+        # Permissions are answered by tapping the buttons on the message.
+        waiters = [w for w in waiters if w.get("kind") != "permission"]
+        if not waiters:
+            return None, None
 
     m = BLANKET_RE.match(text)
     if m:
@@ -184,10 +198,6 @@ def route(text: str, waiters: list[dict]) -> tuple[str | None, dict | None]:
         if not rid and len(waiters) == 1:
             return waiters[0]["request_id"], {"type": "verdict", "allow": allow, "text": text}
         return None, None
-
-    m = ADDRESSED_RE.match(text)
-    if m and m.group(1).lower() in ids:
-        return m.group(1).lower(), {"type": "answer", "text": m.group(2).strip()}
 
     if len(waiters) == 1:
         return waiters[0]["request_id"], {"type": "answer", "text": text.strip()}

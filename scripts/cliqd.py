@@ -208,11 +208,32 @@ def handle_unmatched(relay: Relay, text: str) -> None:
             hint=f"reply `yes {rid}` or `no {rid}`")
 
 
+def ask_which(relay: Relay, text: str, armed: list[dict]) -> None:
+    """Several things are waiting: ask which one, with one tap.
+
+    The typed text is held here rather than sent back, so answering costs a
+    tap and nothing is retyped. Each button names its own request, so the
+    answer cannot land on the wrong session.
+    """
+    hold_reply(text, "")
+    answers = []
+    for w in armed[:5]:                     # Cliq allows at most five buttons
+        where = (w.get("cwd") or "").rstrip("/").split("/")[-1] or "session"
+        kind = "permission" if w.get("kind") == "permission" else "question"
+        answers.append({"label": f"{where} ({kind})", "value": "pick",
+                        "req": w["request_id"]})
+    more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
+    _notify(relay,
+            f"Which one is that for?{more}",
+            kind="choose", answers=answers,
+            hint="tap one — I've kept what you typed")
+
+
 def _notify(relay: Relay, text: str, *, kind: str, request_id: str = "",
-            hint: str = "") -> None:
+            hint: str = "", answers: list[dict] | None = None) -> None:
     try:
         relay.notify(kind=kind, text=text, request_id=request_id or new_request_id(),
-                     hint=hint)
+                     hint=hint, answers=answers)
     except RelayError as exc:
         log(f"daemon notify failed: {exc}")
 
@@ -275,16 +296,32 @@ def main() -> int:
             for msg in res.get("messages", []):
                 cursor = max(cursor, float(msg.get("ts", cursor)))
                 text = (msg.get("text") or "").strip()
-                if not text:
+                bound_id = str(msg.get("request_id") or "").strip().lower()
+                # A chooser tap is deliberately empty: it names a request and
+                # the text was held when we asked. Everything else with no
+                # text is noise.
+                if not text and not bound_id:
                     continue
                 armed = waiter.active()
 
                 # A swipe-reply carries the id of the message it answers, so
                 # it binds exactly -- no guessing, and no id typed by hand.
-                bound = str(msg.get("request_id") or "").strip().lower()
-                target = next((w for w in armed if w["request_id"] == bound), None)
+                target = next((w for w in armed if w["request_id"] == bound_id), None)
+
+                # A chooser tap carries the id but no text -- the text is the
+                # one we held when we asked.
+                if target and not text:
+                    held = _read_held()
+                    if held:
+                        item = held.pop()
+                        _write_held(held)
+                        rid, payload = waiter.route(item["text"], [target], bound=True)
+                        if rid and waiter.resolve(rid, payload):
+                            log(f"chooser applied held reply to {rid}")
+                            continue
+
                 if target:
-                    rid, payload = waiter.route(text, [target])
+                    rid, payload = waiter.route(text, [target], bound=True)
                     if rid and waiter.resolve(rid, payload):
                         log(f"bound reply to {rid}: {payload.get('type')}")
                         continue
@@ -294,10 +331,7 @@ def main() -> int:
                     log(f"routed reply to {rid}: {payload.get('type')}")
                     continue
                 if armed:
-                    ids = ", ".join(f"`{w['request_id']}`" for w in armed)
-                    _notify(relay,
-                            f"Which one? Prefix your reply with an id: {ids}",
-                            kind="ack")
+                    ask_which(relay, text, armed)
                     continue
                 handle_unmatched(relay, text)
 

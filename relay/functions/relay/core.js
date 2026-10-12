@@ -88,12 +88,14 @@ function buildButtons(requestId, answers, { fnName, fnOwner }) {
     },
     // The binding: the tap carries its own request id, so it cannot land on
     // the wrong session however many are outstanding.
-    arguments: { req: requestId, ans: String(a.value) },
+    // A chooser button names its own request: the point of that message is
+    // to pick between several, so one id for the whole message will not do.
+    arguments: { req: String(a.req || requestId), ans: String(a.value) },
   }));
 }
 
 function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now,
-                       fnName = 'claude_cliq_action', fnOwner = '' }) {
+                       fnName = 'claudeCliqAction', fnOwner = '' }) {
   const debug = new Set(debugUsers.map((u) => String(u).toLowerCase()));
 
   const storesBody = (user) => debug.has(String(user || '').toLowerCase());

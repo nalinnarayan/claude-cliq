@@ -65,10 +65,13 @@ def main() -> int:
             + (f"\n{ctx}" if ctx else "")
             + (f"\n\n{detail}" if detail else ""))
 
+    mins = int(cfg.blanket_approval_seconds // 60)
     if not H.send(relay, kind="permission", text=text, request_id=rid,
                   session_id=session_id, cwd=cwd, expects_reply=True,
-                  hint=f"`yes {rid}` · `no {rid}` · `all {rid}` "
-                       f"to approve everything for a while"):
+                  hint="tap a button — typed replies can't approve anything",
+                  answers=[{"label": "Allow", "value": "allow"},
+                           {"label": "Deny", "value": "deny"},
+                           {"label": f"Allow all ({mins}m)", "value": "all"}]):
         return 0        # relay down: fall through to the terminal prompt
 
     reply = H.block_for_reply(cfg, rid, session_id=session_id,

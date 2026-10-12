@@ -5,8 +5,9 @@
 // is the whole point: a tap is bound by construction, so it can never reach
 // the wrong session and nothing has to be typed.
 //
-// Create this in the bot builder as a function named exactly:
-//     claude_cliq_action
+// Create this in the bot builder as a function named exactly (Cliq
+// function names allow letters only -- no underscores):
+//     claudeCliqAction
 
 payload = Map();
 payload.put("cliq_user", user.get("id"));
