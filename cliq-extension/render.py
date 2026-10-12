@@ -56,7 +56,8 @@ def main() -> int:
     OUT.mkdir(exist_ok=True)
     (OUT / ".gitignore").write_text("*\n")
 
-    for name in ("welcome_handler.dg", "message_handler.dg"):
+    sources = sorted(f.name for f in HERE.glob("*.dg") if "debug" not in f.name)
+    for name in sources:
         text = (HERE / name).read_text()
         text = (text.replace("REPLACE_WITH_RELAY_INBOUND_SECRET", secret)
                     .replace("REPLACE_WITH_RELAY_BASE", base)

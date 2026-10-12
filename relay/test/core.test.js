@@ -155,3 +155,67 @@ test('revoked device loses access immediately', async () => {
   await assert.rejects(() => h.relay.notify({ headers: bearer(tok), body: { text: 'hi' } }),
                        /unknown or revoked/);
 });
+
+test('a tapped button lands as a bound pending reply', async () => {
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  const sec = { 'x-relay-secret': 'topsecret' };
+  await h.relay.action({ headers: sec, body: { cliq_user: 'u1', req: 'abcde', ans: 'allow' } });
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages.length, 1);
+  assert.strictEqual(got.messages[0].request_id, 'abcde');
+  assert.strictEqual(got.messages[0].text, 'yes');
+});
+
+test('the chooser tap carries the id and no text', async () => {
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  await h.relay.action({ headers: { 'x-relay-secret': 'topsecret' },
+                         body: { cliq_user: 'u1', req: 'fghij', ans: 'pick' } });
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages[0].request_id, 'fghij');
+  assert.strictEqual(got.messages[0].text, '');
+});
+
+test('a tap needs the shared secret and a known answer', async () => {
+  const h = harness();
+  await assert.rejects(() => h.relay.action({ headers: {}, body: { cliq_user: 'u1', req: 'a' } }),
+                       /bad secret/);
+  await assert.rejects(() => h.relay.action({
+    headers: { 'x-relay-secret': 'topsecret' },
+    body: { cliq_user: 'u1', req: 'abcde', ans: 'rm -rf' } }), /unknown answer/);
+});
+
+test("a tap only ever reaches the tapper's own devices", async () => {
+  const h = harness();
+  const tokA = await pairUser(h, 'u1', 'alice@z.com');
+  const tokB = await pairUser(h, 'u2', 'bob@z.com');
+  // Bob taps, naming a request id that belongs to Alice's session.
+  await h.relay.action({ headers: { 'x-relay-secret': 'topsecret' },
+                         body: { cliq_user: 'u2', req: 'abcde', ans: 'allow' } });
+  const alice = await h.relay.await_({ headers: bearer(tokA), body: { wait: 0 }, sleep });
+  assert.strictEqual(alice.messages.length, 0, 'must not reach Alice');
+  const bob = await h.relay.await_({ headers: bearer(tokB), body: { wait: 0 }, sleep });
+  assert.strictEqual(bob.messages.length, 1);
+});
+
+test('answers become buttons carrying the request id', () => {
+  const { buildButtons } = require('../functions/relay/core.js');
+  const btns = buildButtons('abcde', [
+    { label: 'Allow', value: 'allow' }, { label: 'Deny', value: 'deny' },
+  ], { fnName: 'claude_cliq_action', fnOwner: 'me@z.com' });
+  assert.strictEqual(btns.length, 2);
+  assert.deepStrictEqual(btns[0].arguments, { req: 'abcde', ans: 'allow' });
+  assert.strictEqual(btns[0].action.type, 'invoke.function');
+  assert.strictEqual(btns[0].action.data.name, 'claude_cliq_action');
+  // Required for anyone who did not create the function.
+  assert.strictEqual(btns[0].action.data.owner, 'me@z.com');
+});
+
+test('buttons are capped at five, and owner is omitted when unset', () => {
+  const { buildButtons } = require('../functions/relay/core.js');
+  const many = Array.from({ length: 9 }, (_, i) => ({ label: `o${i}`, value: `${i}` }));
+  const btns = buildButtons('abcde', many, { fnName: 'f', fnOwner: '' });
+  assert.strictEqual(btns.length, 5, 'Cliq allows at most five');
+  assert.ok(!('owner' in btns[0].action.data));
+});

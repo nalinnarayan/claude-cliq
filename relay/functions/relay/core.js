@@ -72,7 +72,28 @@ async function requireDevice(store, headers) {
   return device;
 }
 
-function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now }) {
+/**
+ * Turn the semantic answers a hook offers into Cliq buttons.
+ *
+ * The laptop sends {label, value}; the Cliq shape is built here so the hooks
+ * stay free of it. `owner` matters for distribution: it is optional only for
+ * the person who created the function, and required for everyone else.
+ */
+function buildButtons(requestId, answers, { fnName, fnOwner }) {
+  return answers.slice(0, 5).map((a) => ({
+    label: String(a.label || a.value).slice(0, 100),
+    action: {
+      type: 'invoke.function',
+      data: { name: fnName, ...(fnOwner ? { owner: fnOwner } : {}) },
+    },
+    // The binding: the tap carries its own request id, so it cannot land on
+    // the wrong session however many are outstanding.
+    arguments: { req: requestId, ans: String(a.value) },
+  }));
+}
+
+function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now,
+                       fnName = 'claude_cliq_action', fnOwner = '' }) {
   const debug = new Set(debugUsers.map((u) => String(u).toLowerCase()));
 
   const storesBody = (user) => debug.has(String(user || '').toLowerCase());
@@ -143,8 +164,14 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       // v3 renders Markdown in `text` but not tables, so lift those out into
       // native table slides and send the prose as-is.
       const { text: prose, slides } = splitTables(composed);
-      await cliq.dm(device.email, prose || '(see below)',
-                    slides.length ? { slides } : {});
+      const extras = {};
+      if (slides.length) extras.slides = slides;
+      // Cliq allows at most five buttons on a message.
+      if (Array.isArray(body.answers) && body.answers.length && body.request_id) {
+        extras.buttons = buildButtons(String(body.request_id), body.answers,
+                                      { fnName, fnOwner });
+      }
+      await cliq.dm(device.email, prose || '(see below)', extras);
 
       if (body.session_id) {
         await store.putSession(device.cliq_user, {
@@ -174,6 +201,45 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         if (now() >= deadline) return { messages: [], now: now() };
         await sleep(POLL_TICK_MS);
       }
+    },
+
+    /**
+     * POST /cliq-action -- a tapped button, relayed by the bot's Deluge
+     * function.
+     *
+     * Deliberately lands in the same pending queue a typed reply uses, so
+     * there is one delivery path rather than two. The tap carries the
+     * request id, which is what makes it unambiguous.
+     *
+     * Note a tap can only ever reach the tapper's own devices: the row is
+     * keyed by the Cliq user the bot invoked the function for, so a forged
+     * request id cannot reach anybody else's session.
+     */
+    async action({ headers, body }) {
+      const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
+      if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
+        throw new HttpError(403, 'bad secret');
+      }
+      const cliqUser = String(body.cliq_user || '').trim();
+      const req = String(body.req || '').trim().toLowerCase();
+      if (!cliqUser || !req) throw new HttpError(400, 'cliq_user and req required');
+
+      // An empty answer is the chooser: the laptop already holds the text and
+      // only needs to be told which request it belongs to.
+      const ANSWERS = { allow: 'yes', deny: 'no', all: 'all', pick: '' };
+      const ans = String(body.ans || 'pick').trim().toLowerCase();
+      if (!(ans in ANSWERS)) throw new HttpError(400, `unknown answer: ${ans}`);
+
+      await store.putPending({
+        id: `tap-${req}-${now()}`,
+        cliq_user: cliqUser,
+        request_id: req,
+        text: ANSWERS[ans],
+        ts: now(),
+        expires: now() + PENDING_TTL_MS,
+        retain: storesBody(cliqUser),
+      });
+      return { ok: true, request_id: req, answer: ans };
     },
 
     /** POST /cliq-inbound -- the bot's message handler delivering a reply. */
@@ -209,6 +275,6 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
   };
 }
 
-module.exports = { createRelay, HttpError, sha256, newToken, newPairCode,
+module.exports = { createRelay, buildButtons, HttpError, sha256, newToken, newPairCode,
                    DEVICE_HEADER,
                    timingSafeEqual, SEND_BUDGET_PER_MIN, MAX_WAIT_S };

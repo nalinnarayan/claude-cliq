@@ -1,0 +1,39 @@
+// Bot FUNCTION (not a handler) -- the target of every button's
+// action.type = invoke.function.
+//
+// The button carries `arguments`, which is where the request id rides. That
+// is the whole point: a tap is bound by construction, so it can never reach
+// the wrong session and nothing has to be typed.
+//
+// Create this in the bot builder as a function named exactly:
+//     claude_cliq_action
+
+payload = Map();
+payload.put("cliq_user", user.get("id"));
+payload.put("req", arguments.get("req"));
+payload.put("ans", arguments.get("ans"));
+
+headers = Map();
+headers.put("Content-Type", "application/json");
+headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
+
+reply = "";
+try
+{
+	result = invokeurl
+	[
+		url: "REPLACE_WITH_RELAY_BASE/cliq-action"
+		type: POST
+		parameters: payload.toString()
+		headers: headers
+	];
+	reply = "✓ sent — " + arguments.get("ans");
+}
+catch (e)
+{
+	reply = "Couldn't reach Claude Code: " + e.toString();
+}
+
+response = Map();
+response.put("text", reply);
+return response;

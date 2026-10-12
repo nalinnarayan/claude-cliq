@@ -31,6 +31,9 @@ function relayFor(req) {
       zapikey: process.env.CLIQ_ZAPIKEY,
     }),
     inboundSecret: process.env.RELAY_INBOUND_SECRET,
+    fnName: process.env.CLIQ_FUNCTION_NAME || 'claude_cliq_action',
+    // Optional for the function's creator, required for everyone else.
+    fnOwner: process.env.CLIQ_FUNCTION_OWNER || '',
     debugUsers: (process.env.DEBUG_USERS || '').split(',').map((s) => s.trim()).filter(Boolean),
   });
 }
@@ -60,6 +63,9 @@ app.post('/notify', route((r, req) => r.notify({ headers: req.headers, body: req
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
 
 // -- Cliq-facing -----------------------------------------------------------
+app.post('/cliq-action', route((r, req) =>
+  r.action({ headers: req.headers, body: req.body })));
+
 app.post('/cliq-inbound', (req, res, next) => {
   // Logged before the secret check so a handler calling with the wrong
   // secret is still visible in the Catalyst logs. Never log the secret or
