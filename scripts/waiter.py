@@ -34,7 +34,8 @@ def _path(request_id: str) -> Path:
     return WAITERS_DIR / f"{request_id}.json"
 
 
-def arm(request_id: str, *, session_id: str, kind: str, cwd: str) -> Path:
+def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
+        expires_at: float | None = None) -> Path:
     WAITERS_DIR.mkdir(parents=True, exist_ok=True)
     p = _path(request_id)
     p.write_text(json.dumps({
@@ -44,6 +45,10 @@ def arm(request_id: str, *, session_id: str, kind: str, cwd: str) -> Path:
         "cwd": cwd,
         "pid": os.getpid(),
         "armed_at": time.time(),
+        # Written down because a hook killed at its timeout never runs its
+        # own cleanup. Without this, abandoned waiters pile up and make every
+        # later bare reply ambiguous.
+        "expires_at": expires_at,
     }))
     return p
 
@@ -66,16 +71,43 @@ def resolve(request_id: str, payload: dict) -> bool:
     return True
 
 
+# Belt and braces for a waiter with no deadline recorded, or whose owning
+# process died without one.
+_MAX_WAITER_AGE = 2 * 60 * 60
+
+
 def active() -> list[dict]:
+    """Armed waiters, with dead ones swept as we go."""
     out = []
     if not WAITERS_DIR.exists():
         return out
+    now = time.time()
     for p in sorted(WAITERS_DIR.glob("*.json")):
         try:
-            out.append(json.loads(p.read_text()))
+            data = json.loads(p.read_text())
         except Exception:
+            p.unlink(missing_ok=True)
             continue
+        deadline = data.get("expires_at")
+        stale = (deadline is not None and now > deadline) or \
+                (now - data.get("armed_at", now) > _MAX_WAITER_AGE)
+        if stale or not _owner_alive(data):
+            p.unlink(missing_ok=True)
+            continue
+        out.append(data)
     return out
+
+
+def _owner_alive(data: dict) -> bool:
+    """False once the hook process that armed this waiter has gone."""
+    pid = data.get("pid")
+    if not pid:
+        return True
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except OSError:
+        return False
 
 
 def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
