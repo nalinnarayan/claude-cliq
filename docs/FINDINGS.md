@@ -274,3 +274,19 @@ It now says which of the two applies, and keeps the reply either way.
 Worth knowing for testing: a session started in `$HOME` can never be resumed
 in the background, so the late-reply path cannot be exercised from there at
 all.
+
+## Arming a waiter once is not enough
+
+A hook arms its waiter, starts the daemon, then blocks for up to half an hour.
+If the daemon dies in that window — killed, or standing down after a code
+change — nothing notices, and the reply reaches Cliq and simply never arrives.
+That is indistinguishable from the bridge being broken, and it happened
+repeatedly during development because editing the daemon's own source makes it
+exit on purpose.
+
+`wait()` now checks every ten seconds and restarts the daemon if it has gone.
+
+Related: diagnosing with `/await` **destroys the evidence**, because
+collecting a message deletes it. Two of the replies investigated today were
+consumed by the act of looking at them. `/peek` returns the queue without
+consuming it.

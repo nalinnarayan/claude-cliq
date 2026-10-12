@@ -240,3 +240,16 @@ test('the id is found however the hint decorated it', async () => {
     assert.strictEqual(m.request_id, 'abcde', `failed for: ${m.id}`);
   }
 });
+
+test('peek shows what is queued without consuming it', async () => {
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  await h.relay.inbound({ headers: { 'x-relay-secret': 'topsecret' },
+                          body: { cliq_user: 'u1', text: 'still here', message_id: 'p1' } });
+  const first = await h.relay.peek({ headers: bearer(tok) });
+  assert.strictEqual(first.messages.length, 1);
+  const second = await h.relay.peek({ headers: bearer(tok) });
+  assert.strictEqual(second.messages.length, 1, 'peeking must not delete');
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages.length, 1, 'await still delivers it');
+});

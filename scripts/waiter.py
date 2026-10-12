@@ -132,10 +132,24 @@ def _owner_alive(data: dict) -> bool:
         return False
 
 
-def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
-    """Block until the daemon resolves this waiter, or the deadline passes."""
+def wait(request_id: str, deadline: float, tick: float = 0.2,
+         revive_every: float = 10.0) -> dict | None:
+    """Block until the daemon resolves this waiter, or the deadline passes.
+
+    Also keeps the daemon alive. Arming once and hoping is not enough: the
+    daemon can exit mid-wait -- killed, or standing down after a code change
+    -- and then nothing collects the reply. The symptom is a reply that
+    reaches Cliq and simply never arrives, which is indistinguishable from
+    the bridge being broken.
+    """
     p = _path(request_id)
+    next_check = 0.0
     while time.time() < deadline:
+        if time.time() >= next_check:
+            next_check = time.time() + revive_every
+            if not _daemon_alive():
+                log("daemon not running while waiting — restarting it")
+                ensure_daemon()
         try:
             data = json.loads(p.read_text())
         except FileNotFoundError:

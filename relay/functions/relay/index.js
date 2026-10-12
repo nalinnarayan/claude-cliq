@@ -60,6 +60,7 @@ function requireSecret(req) {
 app.post('/pair',   route((r, req) => r.pair({ body: req.body })));
 app.post('/unpair', route((r, req) => r.unpair({ headers: req.headers })));
 app.post('/notify', route((r, req) => r.notify({ headers: req.headers, body: req.body })));
+app.post('/peek',   route((r, req) => r.peek({ headers: req.headers })));
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
 
 // -- Cliq-facing -----------------------------------------------------------

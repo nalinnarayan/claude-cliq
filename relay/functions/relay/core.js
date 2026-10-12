@@ -188,6 +188,18 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       return { ok: true, request_id: body.request_id || null };
     },
 
+    /**
+     * POST /peek -- what is queued, without consuming it.
+     *
+     * Exists because diagnosing with /await destroys the evidence: the
+     * reply you are investigating is deleted by the act of looking.
+     */
+    async peek({ headers }) {
+      const device = await requireDevice(store, headers);
+      const msgs = await store.listPending(device.cliq_user, 0);
+      return { messages: msgs, now: now() };
+    },
+
     /** POST /await -- long-poll for this device owner's replies. */
     async await_({ headers, body, sleep }) {
       const device = await requireDevice(store, headers);
