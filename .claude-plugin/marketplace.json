@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-cliq",
+  "description": "Zoho Cliq bridge for Claude Code",
+  "owner": {
+    "name": "Nalin Narayan"
+  },
+  "plugins": [
+    {
+      "name": "claude-cliq",
+      "description": "Get pinged in Zoho Cliq when Claude Code finishes, asks a question, or needs permission — and reply from Cliq to keep it working.",
+      "author": {
+        "name": "Nalin Narayan"
+      },
+      "category": "productivity",
+      "source": "./"
+    }
+  ]
+}
