@@ -66,9 +66,15 @@ class Config:
     permission_wait_seconds: int = 300
     # How long a "yes to everything" reply lasts, in seconds.
     blanket_approval_seconds: int = 1800
-    # Release the session after this many consecutive no-tool-call blocks.
-    # Claude Code's own cap is 8; stopping short keeps the exit ours.
-    max_block_streak: int = 6
+    # Release after this many consecutive no-tool-call blocks.
+    #
+    # Claude Code stops honouring blocks at CLAUDE_CODE_STOP_HOOK_BLOCK_CAP
+    # (8 by default), which is a guard against hooks that block
+    # unconditionally. This one cannot spin: every block requires a human
+    # reply. So the cap is raised to 100 in settings.json and this stays
+    # below it -- still a deliberate exit rather than a silent one, but far
+    # enough out that an ordinary conversation never reaches it.
+    max_block_streak: int = 80
     # One long-poll leg. Catalyst caps a function at 30s, so stay under it.
     poll_seconds: int = 25
     enabled: bool = True
