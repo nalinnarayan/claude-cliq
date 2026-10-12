@@ -26,6 +26,24 @@ import waiter
 from cliqlib import (DAEMON_LOCK, STATE_DIR, Config, RateLimited, Relay,
                      RelayError, backoff_sleep, load_config, log, new_request_id)
 
+# The daemon outlives any single session, so it happily keeps running code
+# that has since been edited -- which reads as a fix not working. It watches
+# its own sources instead and steps aside when they change; the next hook
+# starts a fresh one.
+_SOURCES = sorted(Path(__file__).parent.glob("*.py"))
+_SOURCE_STAMP = {f: f.stat().st_mtime for f in _SOURCES if f.exists()}
+
+
+def sources_changed() -> str | None:
+    for f, was in _SOURCE_STAMP.items():
+        try:
+            if f.stat().st_mtime != was:
+                return f.name
+        except OSError:
+            return f.name
+    return None
+
+
 CURSOR_PATH = STATE_DIR / "cursor"
 LAST_NOTIFIED = STATE_DIR / "last_notified.json"
 PENDING_RESUME = STATE_DIR / "pending_resume.json"
@@ -277,6 +295,11 @@ def main() -> int:
 
     try:
         while should_keep_running():
+            changed = sources_changed()
+            if changed:
+                log(f"{changed} changed on disk — exiting so the next hook "
+                    f"starts a daemon running the current code")
+                break
             deliver_held(relay)
             armed = waiter.active()
             if not armed:
