@@ -33,6 +33,12 @@
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_trouble.py\" failure",
             "timeout": 15,
             "async": true
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_settled.py\"",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -68,6 +74,18 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_session.py\" end",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/on_settled.py\"",
+            "timeout": 10,
+            "async": true
           }
         ]
       }

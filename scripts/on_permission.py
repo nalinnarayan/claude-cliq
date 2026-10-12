@@ -72,7 +72,8 @@ def main() -> int:
         return 0        # relay down: fall through to the terminal prompt
 
     reply = H.block_for_reply(cfg, rid, session_id=session_id,
-                              kind="permission", cwd=cwd)
+                              kind="permission", cwd=cwd,
+                              tool_use_id=payload.get("tool_use_id", ""))
 
     if not reply or reply.get("type") != "verdict":
         # No answer in time: hand it back to the terminal rather than

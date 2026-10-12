@@ -60,6 +60,10 @@ class Config:
     # would fork a copy. The clock restarts on every reply, so this bounds a
     # single gap, not the conversation. Hook is registered at 2100s.
     wait_seconds: int = 1800
+    # Permissions get a shorter hold than questions. They are answered in
+    # seconds when answered at all, and a permission waiter that outlives its
+    # tool call makes every later bare reply ambiguous.
+    permission_wait_seconds: int = 300
     # How long a "yes to everything" reply lasts, in seconds.
     blanket_approval_seconds: int = 1800
     # Release the session after this many consecutive no-tool-call blocks.

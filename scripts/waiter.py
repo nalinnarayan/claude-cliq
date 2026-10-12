@@ -35,7 +35,7 @@ def _path(request_id: str) -> Path:
 
 
 def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
-        expires_at: float | None = None) -> Path:
+        expires_at: float | None = None, tool_use_id: str = "") -> Path:
     WAITERS_DIR.mkdir(parents=True, exist_ok=True)
     p = _path(request_id)
     p.write_text(json.dumps({
@@ -49,12 +49,31 @@ def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
         # own cleanup. Without this, abandoned waiters pile up and make every
         # later bare reply ambiguous.
         "expires_at": expires_at,
+        # Lets PostToolUse cancel this waiter: if the permission was answered
+        # at the terminal instead, the tool runs and we must stop waiting on
+        # Cliq -- otherwise the waiter lingers and poisons every later reply.
+        "tool_use_id": tool_use_id,
     }))
     return p
 
 
 def disarm(request_id: str) -> None:
     _path(request_id).unlink(missing_ok=True)
+
+
+def disarm_for_tool(tool_use_id: str) -> int:
+    """Drop any waiter whose tool call has since been settled elsewhere."""
+    if not tool_use_id or not WAITERS_DIR.exists():
+        return 0
+    n = 0
+    for p in WAITERS_DIR.glob("*.json"):
+        try:
+            if json.loads(p.read_text()).get("tool_use_id") == tool_use_id:
+                p.unlink(missing_ok=True)
+                n += 1
+        except Exception:
+            continue
+    return n
 
 
 def resolve(request_id: str, payload: dict) -> bool:
@@ -116,6 +135,10 @@ def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
     while time.time() < deadline:
         try:
             data = json.loads(p.read_text())
+        except FileNotFoundError:
+            # Cancelled: the question was settled without us, so stop holding
+            # the session rather than waiting out the whole window.
+            return None
         except Exception:
             data = {}
         if "resolved" in data:

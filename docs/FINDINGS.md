@@ -126,3 +126,32 @@ So: the wait window (10 minutes, `wait_seconds`) is the contract. Past it the
 session is released and the reply goes to the terminal. The late-reply resume
 still fires for sessions that genuinely ended — a closed terminal or a
 finished headless run — which costs nothing extra since it is already built.
+
+## A permission answered at the terminal strands its Cliq waiter
+
+Two premises turned out to be wrong, and together they made replies stop
+landing.
+
+**"One waiter per session."** False. Claude Code issues tool calls in
+parallel, and each one needing permission runs its own `PermissionRequest`
+hook concurrently. Two waiters armed from a single session were observed
+directly, both with live processes.
+
+**"The hook decides the permission."** Also false. While the hook waits on
+Cliq, the terminal prompt is shown too, and they race. Answering in the
+terminal lets the tool run — but nothing tells the waiting hook, so it holds
+for its entire window. Two were found stranded at 12 and 10 minutes.
+
+While *any* waiter is armed, a bare reply is ambiguous and gets bounced with
+"Which one?", so one stranded permission silently breaks every later reply.
+Raising the wait window to 30 minutes made this six times worse.
+
+Fixed by letting the tool call cancel its own waiter:
+
+- `arm()` records `tool_use_id`
+- `on_settled.py` runs on `PostToolUse` and `PostToolUseFailure` and calls
+  `disarm_for_tool()` — either outcome means the question was settled
+- `wait()` treats a vanished waiter file as cancellation and returns at once
+  instead of waiting out the window
+- permissions get their own shorter window (`permission_wait_seconds`, 300s),
+  since they are answered in seconds when answered at all

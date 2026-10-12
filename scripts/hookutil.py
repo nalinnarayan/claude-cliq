@@ -92,11 +92,12 @@ def send(relay: Relay, *, kind: str, text: str, request_id: str,
 
 
 def block_for_reply(cfg: Config, request_id: str, *, session_id: str,
-                    kind: str, cwd: str) -> dict | None:
+                    kind: str, cwd: str, tool_use_id: str = "") -> dict | None:
     """Arm a waiter and hold this session until the daemon answers it."""
-    deadline = time.time() + cfg.wait_seconds
+    window = cfg.permission_wait_seconds if kind == "permission" else cfg.wait_seconds
+    deadline = time.time() + window
     waiter.arm(request_id, session_id=session_id, kind=kind, cwd=cwd,
-               expires_at=deadline)
+               expires_at=deadline, tool_use_id=tool_use_id)
     waiter.ensure_daemon()
     return waiter.wait(request_id, deadline=deadline)
 
