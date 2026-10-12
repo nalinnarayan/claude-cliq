@@ -80,3 +80,23 @@ The two concerns are separate:
 Notify always; block only when away mode is on *and* we did not just block.
 A reply to the released message still works — it takes the late-reply path
 and resumes the session in the background.
+
+### …but it must not release the session either
+
+The first fix over-corrected: never blocking twice in a row meant that after
+answering a follow-up, the session was *released*. It then sat live and idle
+at the terminal prompt, and the next Cliq reply had nowhere to go —
+
+- no hook was waiting, so nothing could consume it;
+- `--bg --resume` against a live session forks a copy rather than continuing it;
+- an idle interactive session cannot be fed from outside at all.
+
+The daemon correctly reported "that session is still open in your terminal",
+but the reply was dropped and the conversation was stuck.
+
+Blocking repeatedly is in fact safe **in this design**, because every block
+requires a human reply — it cannot spin on its own. The only real ceiling is
+Claude Code refusing after 8 consecutive blocks with no tool call in between.
+So the hook now counts its own streak and releases at 6, deliberately and with
+an explanation, instead of having a block silently ignored at 8. Any tool call
+resets the counter, so a session doing real work holds indefinitely.

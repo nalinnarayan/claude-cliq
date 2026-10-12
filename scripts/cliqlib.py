@@ -24,6 +24,7 @@ SESSIONS_DIR = STATE_DIR / "sessions"
 WAITERS_DIR = STATE_DIR / "waiters"
 INBOX_PATH = STATE_DIR / "inbox.jsonl"
 APPROVALS_DIR = STATE_DIR / "approvals"
+STREAKS_DIR = STATE_DIR / "streaks"
 DAEMON_LOCK = STATE_DIR / "cliqd.lock"
 LOG_PATH = STATE_DIR / "cliq.log"
 
@@ -56,6 +57,9 @@ class Config:
     wait_seconds: int = 300
     # How long a "yes to everything" reply lasts, in seconds.
     blanket_approval_seconds: int = 1800
+    # Release the session after this many consecutive no-tool-call blocks.
+    # Claude Code's own cap is 8; stopping short keeps the exit ours.
+    max_block_streak: int = 6
     # One long-poll leg. Catalyst caps a function at 30s, so stay under it.
     poll_seconds: int = 25
     enabled: bool = True
@@ -90,6 +94,26 @@ def save_config(cfg: Config) -> None:
     os.chmod(tmp, 0o600)
     tmp.replace(CONFIG_PATH)
     os.chmod(CONFIG_PATH, 0o600)
+
+
+def block_streak(session_id: str, *, bump: bool) -> int:
+    """Consecutive Stop-blocks with no tool call in between.
+
+    Claude Code stops honouring blocks after 8 of these. We count our own so
+    we can release the session one short of that, deliberately and with an
+    explanation, rather than having a block silently ignored.
+    """
+    STREAKS_DIR.mkdir(parents=True, exist_ok=True)
+    f = STREAKS_DIR / f"{session_id}.txt"
+    if not bump:
+        f.unlink(missing_ok=True)
+        return 0
+    try:
+        n = int(f.read_text().strip()) + 1
+    except Exception:
+        n = 1
+    f.write_text(str(n))
+    return n
 
 
 def grant_blanket_approval(session_id: str, seconds: int) -> float:

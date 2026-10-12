@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 
 import hookutil as H
-from cliqlib import is_away, new_request_id
+from cliqlib import block_streak, is_away, new_request_id
 
 
 def main() -> int:
@@ -32,19 +32,26 @@ def main() -> int:
     if not body:
         return 0
 
-    # Never hold the session twice in a row: that is what `resumed` guards.
-    armed = is_away() and not resumed
+    # A tool call since the last block resets Claude Code's counter, so only
+    # count the runs where it did not.
+    streak = block_streak(session_id, bump=resumed) if session_id else 0
+    # Blocking repeatedly is safe here because every block requires a human
+    # reply -- this cannot spin on its own. The only real ceiling is Claude
+    # Code refusing after 8 consecutive no-tool blocks, so stop just short.
+    at_ceiling = streak >= cfg.max_block_streak
+    armed = is_away() and not at_ceiling
     rid = new_request_id()
     ctx = H.context_line(cwd)
     lead = "💬 Answered" if resumed else "✅ Claude finished"
     text = f"{lead} — {ctx}\n\n{body}" if ctx else f"{lead}\n\n{body}"
 
-    if resumed:
-        # Released rather than held, so say how to keep going: a reply now
-        # takes the late-reply path and resumes the session in the background.
-        hint = "reply to pick this up again"
-    elif armed:
+    if armed:
         hint = f"reply to keep it going (id `{rid}`)"
+    elif at_ceiling:
+        # Said plainly: this is the one case where the session really does
+        # let go, and a reply afterwards takes the resume path instead.
+        hint = ("this session has gone back-and-forth a while, so I'm letting "
+                "it go — reply and I'll offer to resume it in the background")
     else:
         hint = ""
 
