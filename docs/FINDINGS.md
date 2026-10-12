@@ -100,3 +100,24 @@ Claude Code refusing after 8 consecutive blocks with no tool call in between.
 So the hook now counts its own streak and releases at 6, deliberately and with
 an explanation, instead of having a block silently ignored at 8. Any tool call
 resets the counter, so a session doing real work holds indefinitely.
+
+## Decision: replies land inside the window, or you go to the terminal
+
+Investigated at length and deliberately **not** built. A live interactive
+session cannot be fed from outside:
+
+- `--resume --bg` forks a copy while the target is running
+- stopping it would kill work in progress
+- Remote Control is disabled by org policy here
+- `--messaging-socket-path` is a real cross-session bus, but no CLI exposes it
+- `--input-format stream-json` is real, but needs `--print`
+
+Background sessions *could* close the gap — they can be stopped and then
+resumed with no flags, and `claude attach` / Ctrl+Z move between terminal and
+background. But that means starting away-work differently from ordinary work,
+plus session housekeeping, to serve a minority case.
+
+So: the wait window (10 minutes, `wait_seconds`) is the contract. Past it the
+session is released and the reply goes to the terminal. The late-reply resume
+still fires for sessions that genuinely ended — a closed terminal or a
+finished headless run — which costs nothing extra since it is already built.
