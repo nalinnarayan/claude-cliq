@@ -307,6 +307,14 @@ def main() -> int:
                 # A swipe-reply carries the id of the message it answers, so
                 # it binds exactly -- no guessing, and no id typed by hand.
                 target = next((w for w in armed if w["request_id"] == bound_id), None)
+                if bound_id and not target:
+                    # The id came back but names nothing still waiting --
+                    # usually a swipe-reply to a question already answered.
+                    log(f"reply names {bound_id}, which is no longer waiting "
+                        f"(armed: {[w['request_id'] for w in armed]})")
+                elif not bound_id:
+                    log("reply carried no id (plain message, or the swiped "
+                        "message had no id in it)")
 
                 # A chooser tap carries the id but no text -- the text is the
                 # one we held when we asked.
