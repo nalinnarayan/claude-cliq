@@ -259,3 +259,18 @@ raising it is what keeps a long Cliq conversation alive. Setting it once in
 one person's `~/.claude/settings.json` does nothing for anyone else, so
 pairing writes it into each user's own settings and says so. It needs a
 restart to take effect.
+
+## Offer a resume only when it can actually happen
+
+`claude --bg --resume` refuses in an untrusted folder, and refuses in the home
+directory however it is configured — "trusted one session at a time". Both are
+knowable before offering anything: `~/.claude.json` records
+`hasTrustDialogAccepted` per project.
+
+The bot was offering a Resume button and only discovering the refusal after
+the tap, which reads as the feature being broken rather than as a setup step.
+It now says which of the two applies, and keeps the reply either way.
+
+Worth knowing for testing: a session started in `$HOME` can never be resumed
+in the background, so the late-reply path cannot be exercised from there at
+all.

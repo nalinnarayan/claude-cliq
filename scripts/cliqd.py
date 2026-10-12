@@ -159,6 +159,31 @@ def deliver_held(relay: Relay) -> None:
     _write_held(remaining)
 
 
+def why_not_resumable(cwd: str) -> str | None:
+    """Reasons a background resume cannot work, known before we offer it.
+
+    `claude --bg --resume` refuses in an untrusted folder, and refuses in the
+    home directory no matter what -- it is "trusted one session at a time".
+    Checking first means not offering a button that cannot do anything.
+    """
+    if not cwd:
+        return "I don't know which folder that session was in"
+    home = str(Path.home())
+    if cwd.rstrip("/") == home.rstrip("/"):
+        return ("that session is running in your home directory, which "
+                "Claude Code will not resume in the background")
+    try:
+        data = json.loads((Path.home() / ".claude.json").read_text())
+        entry = (data.get("projects") or {}).get(cwd) or {}
+        if not entry.get("hasTrustDialogAccepted"):
+            where = cwd.replace(home, "~")
+            return (f"{where} isn't a trusted folder yet — run `claude` there "
+                    f"once and accept the prompt")
+    except Exception:
+        pass            # cannot tell; let the resume try and report for itself
+    return None
+
+
 def resume_session(session_id: str, cwd: str, text: str) -> tuple[bool, str]:
     """Continue an idle session in the background with `text` as a new turn."""
     if waiter.session_live(session_id):
@@ -221,6 +246,16 @@ def handle_unmatched(relay: Relay, text: str) -> None:
         _notify(relay, "Nothing's waiting on a reply just now — I've kept "
                        "that and will pass it on when Claude next pauses.",
                 kind="ack")
+        return
+
+    blocked = why_not_resumable(cwd)
+    if blocked:
+        # Say so now rather than offering a button that will fail.
+        hold_reply(text, session_id)
+        _notify(relay,
+                f"That session has gone idle, but I can't bring it back: "
+                f"{blocked}.\n\nI've kept what you said for when it next "
+                f"pauses.", kind="ack")
         return
 
     rid = new_request_id()
