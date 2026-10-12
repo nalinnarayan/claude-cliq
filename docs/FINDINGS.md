@@ -201,3 +201,31 @@ being sent away, and gets a confirmation when it lands.
 The hold is deliberately short: long enough to cover a few tool calls, short
 enough that an old reply cannot resurface against some unrelated later
 question.
+
+## `message_details` carries everything the bare variables do not
+
+The handler attribute I never tested, and it overturns two earlier
+conclusions. `message`, `chat`, `mentions` and `attachments` are the obvious
+variables; `message_details` is where the useful structure lives.
+
+```
+message_details.message.text              typed text
+message_details.message.comment           caption, when a file is attached
+message_details.message.replied_message   the message a swipe-reply answers
+message_details.message.file              {name, id, type, url}
+```
+
+**Swipe-reply does bind.** Earlier this was tested by dumping `chat`,
+`mentions` and `attachments` and concluding the reply reference did not exist.
+It does — `replied_message` carries the answered message's `id` *and its full
+text*. Since outbound messages already end with "(id xxxxx)", the id comes back
+with the reply and nothing has to be typed or stored.
+
+**An attachment puts its caption in `comment`, not `message`.** The bare
+`message` variable is empty for an attachment, which is why an image with a
+caption silently failed: the relay rejected it for missing text.
+
+**Attachment URLs expire.** `file.url` carries `?type=transient` and returns
+`attachment_access_time_expired` within minutes. `attachments` also holds the
+Deluge *file object*, which `invokeurl` can upload directly with `files:` —
+the durable route if images are ever forwarded on.

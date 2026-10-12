@@ -278,6 +278,17 @@ def main() -> int:
                 if not text:
                     continue
                 armed = waiter.active()
+
+                # A swipe-reply carries the id of the message it answers, so
+                # it binds exactly -- no guessing, and no id typed by hand.
+                bound = str(msg.get("request_id") or "").strip().lower()
+                target = next((w for w in armed if w["request_id"] == bound), None)
+                if target:
+                    rid, payload = waiter.route(text, [target])
+                    if rid and waiter.resolve(rid, payload):
+                        log(f"bound reply to {rid}: {payload.get('type')}")
+                        continue
+
                 rid, payload = waiter.route(text, armed)
                 if rid and waiter.resolve(rid, payload):
                     log(f"routed reply to {rid}: {payload.get('type')}")

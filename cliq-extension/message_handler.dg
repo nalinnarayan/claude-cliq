@@ -1,40 +1,57 @@
 // Bot message handler -- fires on every reply the user types to the bot.
-// Deluge bots declare no permissions: `user`, `message` and `chat` arrive
-// automatically. Keeping the code minimal keeps the consent dialog small.
 //
-// Shapes, confirmed by dumping them in a live handler:
-//   message -> a plain STRING, the text itself (NOT a map; .get() throws)
-//   user    -> Map with id, email, first_name, organization_id, ...
-//   chat    -> Map with id, chat_type, and recent_messages[]
+// Everything useful is in `message_details`, NOT in the bare `message`
+// variable, which is empty for an attachment and carries no reply context:
 //
-// Deliberately minimal: enqueue and return. Any platform component is capped
-// at 15 seconds, and the real work (deciding what the reply means, resuming a
-// session) belongs on the laptop, not here.
+//   message_details.message.text              typed text
+//   message_details.message.comment           caption, when a file is attached
+//   message_details.message.replied_message   the message a swipe-reply answers
+//   message_details.message.file              {name, id, type, url}
+//
+// `replied_message.text` is what binds a reply to its request: our outbound
+// messages carry "(id xxxxx)", so the id comes back with the reply and no
+// one has to type it.
 
-// A swipe/quote-reply arrives with an EMPTY message -- Cliq passes neither
-// the replied-to message nor the text typed into it. Say so, rather than
-// failing silently and leaving the user wondering why nothing happened.
-body = message.toString();
-if(body.trim() == "")
+md = message_details.get("message");
+mtype = md.get("type");
+
+body = "";
+if(mtype == "attachment")
+{
+	body = md.get("comment");
+}
+else
+{
+	body = md.get("text");
+}
+if(body == null)
+{
+	body = "";
+}
+
+repliedText = "";
+replied = md.get("replied_message");
+if(replied != null)
+{
+	repliedText = replied.get("text");
+	if(repliedText == null)
+	{
+		repliedText = "";
+	}
+}
+
+if(body.trim() == "" && repliedText.trim() == "")
 {
 	response = Map();
-	response.put("text", "I couldn't read that reply. Type it in the message box rather than using reply-to — Cliq doesn't pass the text through on a quote-reply.");
+	response.put("text", "I couldn't read that one — send it as text or as a file with a caption.");
 	return response;
 }
 
 payload = Map();
 payload.put("cliq_user", user.get("id"));
 payload.put("text", body);
-
-// The Cliq message id is what makes a repeated delivery idempotent on the
-// relay. It is not passed directly, but the triggering message is the most
-// recent entry in chat.recent_messages. If that shape ever changes, the
-// relay generates its own id rather than failing.
-recent = chat.get("recent_messages");
-if(recent != null && recent.size() > 0)
-{
-	payload.put("message_id", recent.get(recent.size() - 1).get("id"));
-}
+// Sent whole; the relay pulls the request id out of it.
+payload.put("replied_text", repliedText.left(400));
 
 headers = Map();
 headers.put("Content-Type", "application/json");

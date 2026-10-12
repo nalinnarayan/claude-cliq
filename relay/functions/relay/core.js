@@ -13,6 +13,11 @@
 const crypto = require('crypto');
 const { splitTables } = require('./format');
 
+// Outbound messages end with "(id xxxxx)", so a swipe-reply hands that text
+// straight back in replied_message.text. Pulling the id out of it binds the
+// reply to its request with nothing typed and nothing stored.
+const REPLIED_ID = /\(id\s+([a-z]{5})\)/i;
+
 const PAIR_CODE_TTL_MS = 10 * 60 * 1000;   // a code is useless after 10 minutes
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_WAIT_S = 25;                      // Catalyst kills a function at 30s
@@ -184,9 +189,14 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       // Cliq does not redeliver, but a handler may fire twice on a retry of
       // its own; keying on the Cliq message id makes this idempotent.
       const id = String(body.message_id || crypto.randomUUID());
+      const replied = String(body.replied_text || '');
+      const m = REPLIED_ID.exec(replied);
       await store.putPending({
         id,
         cliq_user: cliqUser,
+        // Bound when the user replied TO a specific message; empty when they
+        // just typed into the chat.
+        request_id: m ? m[1].toLowerCase() : '',
         text: text.slice(0, MAX_TEXT),
         ts: now(),
         expires: now() + PENDING_TTL_MS,

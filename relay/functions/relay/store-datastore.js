@@ -70,13 +70,24 @@ function createStore(app) {
 
     // -- pending replies (the hot path) ----------------------------------
     async putPending(m) {
-      await ds.table('Pending').insertRow({
+      const t = ds.table('Pending');
+      const row = {
         msg_id: m.id, cliq_user: m.cliq_user,
         // Bodies are kept only for the debug allowlist; for everyone else
         // the row carries just enough to deliver it, and is deleted on read.
         body: m.text, ts: m.ts, expires: m.expires,
         retain: !!m.retain,
-      });
+      };
+      if (m.request_id) {
+        try {
+          return await t.insertRow({ ...row, request_id: m.request_id });
+        } catch (err) {
+          // The request_id column may not exist yet. Losing the binding is
+          // far better than losing the reply, so fall through without it.
+          console.warn('putPending: no request_id column?', err && err.message);
+        }
+      }
+      return t.insertRow(row);
     },
 
     async listPending(cliqUser, since) {
@@ -85,12 +96,12 @@ function createStore(app) {
       const cutoff = Date.now() - 24 * 3600 * 1000;
       const floor = Math.max(Number(since) || 0, cutoff);
       const found = await query(
-        `SELECT ROWID, msg_id, cliq_user, body, ts FROM Pending
+        `SELECT * FROM Pending
          WHERE cliq_user = ${lit(cliqUser)} AND ts > ${num(floor)}
          ORDER BY ts LIMIT 25`, 'Pending');
       return found.map((r) => ({
         ROWID: r.ROWID, id: r.msg_id, cliq_user: r.cliq_user,
-        text: r.body, ts: Number(r.ts),
+        text: r.body, ts: Number(r.ts), request_id: r.request_id || '',
       }));
     },
 

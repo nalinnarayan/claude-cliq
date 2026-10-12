@@ -48,6 +48,7 @@ _Replies waiting to be collected by a long-poll. The hot path -- rows are delete
 | `ts` | bigint | no size field | **Mandatory** | Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away |
 | `expires` | bigint | no size field | — | Epoch milliseconds |
 | `retain` | boolean | no size field | — | True only for debug-allowlisted users |
+| `request_id` | varchar | Max Length **16** | — | Set when the user swipe-replied: binds the reply to that request |
 
 ## Sessions
 

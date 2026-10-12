@@ -157,6 +157,16 @@
           "search_index_enabled": "false",
           "audit_consent": "false",
           "description": "True only for debug-allowlisted users"
+        },
+        {
+          "column_name": "request_id",
+          "data_type": "varchar",
+          "max_length": 16,
+          "is_unique": "false",
+          "is_mandatory": "false",
+          "search_index_enabled": "false",
+          "audit_consent": "false",
+          "description": "Set when the user swipe-replied: binds the reply to that request"
         }
       ]
     },
