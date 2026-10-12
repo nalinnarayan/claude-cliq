@@ -219,3 +219,24 @@ test('buttons are capped at five, and owner is omitted when unset', () => {
   assert.strictEqual(btns.length, 5, 'Cliq allows at most five');
   assert.ok(!('owner' in btns[0].action.data));
 });
+
+test('the id is found however the hint decorated it', async () => {
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  const sec = { 'x-relay-secret': 'topsecret' };
+  const variants = [
+    'reply to keep it going (id abcde)',
+    'reply to keep it going (id `abcde`)',      // what the hook actually writes
+    '_reply to keep it going (id `abcde`)_',    // plus the italics wrapper
+    'something\nmultiline (id abcde)\nmore',
+  ];
+  for (const [i, replied] of variants.entries()) {
+    await h.relay.inbound({ headers: sec,
+      body: { cliq_user: 'u1', text: 'x', message_id: `v${i}`, replied_text: replied } });
+  }
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages.length, variants.length);
+  for (const m of got.messages) {
+    assert.strictEqual(m.request_id, 'abcde', `failed for: ${m.id}`);
+  }
+});

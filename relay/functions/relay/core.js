@@ -16,7 +16,9 @@ const { splitTables } = require('./format');
 // Outbound messages end with "(id xxxxx)", so a swipe-reply hands that text
 // straight back in replied_message.text. Pulling the id out of it binds the
 // reply to its request with nothing typed and nothing stored.
-const REPLIED_ID = /\(id\s+([a-z]{5})\)/i;
+// Tolerant of the markdown around it: the hint writes the id in backticks,
+// and replied_message.text hands back the raw source, decoration included.
+const REPLIED_ID = /\(id[\s:*_`]*([a-z]{5})[\s*_`]*\)/i;
 
 const PAIR_CODE_TTL_MS = 10 * 60 * 1000;   // a code is useless after 10 minutes
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
