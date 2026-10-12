@@ -52,9 +52,14 @@ def log(msg: str) -> None:
 class Config:
     relay_url: str = ""
     device_token: str = ""
-    # How long a hook will hold the session waiting for a reply. Past this
-    # the hook releases and the late-reply path takes over.
-    wait_seconds: int = 300
+    # How long a hook holds the session waiting for a reply.
+    #
+    # Ten minutes, not five: past this the session is released, and if it is
+    # an interactive terminal still sitting at the prompt there is no way to
+    # deliver a later reply into it -- resuming would fork a copy. Away mode
+    # is opt-in, so a long hold costs nothing when you are actually away.
+    # The hook itself is registered at 900s, so this can go to ~840.
+    wait_seconds: int = 600
     # How long a "yes to everything" reply lasts, in seconds.
     blanket_approval_seconds: int = 1800
     # Release the session after this many consecutive no-tool-call blocks.
