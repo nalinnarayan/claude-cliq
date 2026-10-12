@@ -11,6 +11,7 @@
  */
 
 const crypto = require('crypto');
+const { splitTables } = require('./format');
 
 const PAIR_CODE_TTL_MS = 10 * 60 * 1000;   // a code is useless after 10 minutes
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
@@ -132,7 +133,13 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       }
 
       const hint = String(body.hint || '').slice(0, 300);
-      await cliq.dm(device.email, hint ? `${text}\n\n_${hint}_` : text);
+      const composed = hint ? `${text}\n\n_${hint}_` : text;
+
+      // v3 renders Markdown in `text` but not tables, so lift those out into
+      // native table slides and send the prose as-is.
+      const { text: prose, slides } = splitTables(composed);
+      await cliq.dm(device.email, prose || '(see below)',
+                    slides.length ? { slides } : {});
 
       if (body.session_id) {
         await store.putSession(device.cliq_user, {

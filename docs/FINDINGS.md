@@ -177,3 +177,7 @@ Other v3 differences, each learned from a 400 rather than the docs:
 Unknown body keys are a hard 400 on v3, so the client sends only an allow-list.
 Losing `sync_message` costs the sent `message_id`; the buttons design does not
 need it, since binding comes from `arguments.req`.
+
+**Tables are the exception.** v3 renders every other Markdown construct in
+`text`, but a Markdown table still arrives as raw pipes. They have to be lifted
+out and sent as native table slides, which is what `format.js` does.
