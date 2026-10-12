@@ -29,6 +29,7 @@ from cliqlib import (DAEMON_LOCK, STATE_DIR, Config, RateLimited, Relay,
 CURSOR_PATH = STATE_DIR / "cursor"
 LAST_NOTIFIED = STATE_DIR / "last_notified.json"
 PENDING_RESUME = STATE_DIR / "pending_resume.json"
+HELD_REPLIES = STATE_DIR / "held_replies.json"
 
 # Keep watching this long after the last notification, so a reply that
 # arrives once the session has gone quiet still gets picked up.
@@ -36,6 +37,10 @@ IDLE_GRACE = 30 * 60
 # While nothing is actively waiting, poll at this interval instead of
 # holding a continuous long-poll.
 IDLE_POLL_EVERY = 30.0
+# How long a reply sent while Claude was busy waits for it to pause. Long
+# enough to cover a tool call or two, short enough that it can't resurface
+# against some unrelated later question.
+HOLD_FOR = 10 * 60
 
 
 def read_cursor() -> float:
@@ -92,6 +97,50 @@ def _set_pending_resume(data: dict) -> None:
         pass
 
 
+def _read_held() -> list[dict]:
+    try:
+        held = json.loads(HELD_REPLIES.read_text())
+    except Exception:
+        return []
+    now = time.time()
+    return [h for h in held if now - h.get("ts", 0) < HOLD_FOR]
+
+
+def _write_held(held: list[dict]) -> None:
+    try:
+        if held:
+            HELD_REPLIES.write_text(json.dumps(held))
+        else:
+            HELD_REPLIES.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def hold_reply(text: str, session_id: str) -> None:
+    """Keep a reply that arrived while Claude was busy, to hand over later."""
+    held = _read_held()
+    held.append({"text": text, "session_id": session_id, "ts": time.time()})
+    _write_held(held[-10:])
+
+
+def deliver_held(relay: Relay) -> None:
+    """Hand any held reply to a waiter that has since armed."""
+    held = _read_held()
+    if not held:
+        return
+    remaining = []
+    for item in held:
+        armed = waiter.active()
+        rid, payload = waiter.route(item["text"], armed) if armed else (None, None)
+        if rid and waiter.resolve(rid, payload):
+            log(f"delivered held reply to {rid}")
+            _notify(relay, f"Passed that on now that it's paused:\n\n_{item['text'][:200]}_",
+                    kind="ack")
+        else:
+            remaining.append(item)
+    _write_held(remaining)
+
+
 def resume_session(session_id: str, cwd: str, text: str) -> tuple[bool, str]:
     """Continue an idle session in the background with `text` as a new turn."""
     if waiter.session_live(session_id):
@@ -140,11 +189,12 @@ def handle_unmatched(relay: Relay, text: str) -> None:
 
     session_id, cwd = last["session_id"], last.get("cwd", "")
     if waiter.session_live(session_id):
-        where = cwd.replace(str(Path.home()), "~") or "that session"
-        _notify(relay,
-                f"That session waited and has let go — too long idle to pick "
-                f"your reply up from here.\n\nIt's still open in your terminal "
-                f"at {where}. Carry on there and it'll keep going.", kind="ack")
+        # Alive but nothing armed: Claude is mid-task rather than waiting.
+        # Hold the reply and hand it over the moment it next pauses, instead
+        # of throwing it away and telling them to use the terminal.
+        hold_reply(text, session_id)
+        _notify(relay, "Claude's still working — I'll pass that on the moment "
+                       "it pauses.", kind="ack")
         return
 
     rid = new_request_id()
@@ -173,7 +223,7 @@ def should_keep_running() -> bool:
     last = _last_notified()
     if last and time.time() - last.get("ts", 0) < IDLE_GRACE:
         return True
-    return PENDING_RESUME.exists()
+    return PENDING_RESUME.exists() or bool(_read_held())
 
 
 def main() -> int:
@@ -196,6 +246,7 @@ def main() -> int:
 
     try:
         while should_keep_running():
+            deliver_held(relay)
             armed = waiter.active()
             if not armed:
                 # Nothing blocking: poll lazily rather than holding a leg open.

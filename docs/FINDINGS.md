@@ -181,3 +181,23 @@ need it, since binding comes from `arguments.req`.
 **Tables are the exception.** v3 renders every other Markdown construct in
 `text`, but a Markdown table still arrives as raw pipes. They have to be lifted
 out and sent as native table slides, which is what `format.js` does.
+
+## A reply sent while Claude is working had nowhere to go
+
+Waiters are armed only while a hook is blocking — that is, while Claude is
+*waiting*. Reply while it is mid-task and nothing is armed, so the daemon fell
+through to the late-reply path, found the session alive, and told the user to
+use the terminal. The reply was dropped.
+
+That is the wrong reading of "alive but nothing armed". It does not mean the
+session has gone idle; it usually means Claude is busy and simply has not
+paused yet.
+
+The daemon now **holds** such a reply (10 minutes) and delivers it to the first
+waiter that arms, which is exactly when Claude next pauses. The user is told
+"Claude's still working — I'll pass that on the moment it pauses" rather than
+being sent away, and gets a confirmation when it lands.
+
+The hold is deliberately short: long enough to cover a few tool calls, short
+enough that an old reply cannot resurface against some unrelated later
+question.
