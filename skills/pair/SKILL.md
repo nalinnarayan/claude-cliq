@@ -21,8 +21,10 @@ have one, tell them to subscribe to the bot at
 After pairing succeeds, tell them two things in one line each:
 
 - `/claude-cliq:away on` when they step away — Claude then waits for Cliq replies.
-- Replies work as plain text for questions, and `yes <id>` / `no <id>` for
-  permission requests.
+- Questions are answered by typing a plain reply. Permission requests are
+  answered by **tapping the buttons** on the message — typed approvals are
+  refused on purpose, since a bare "yes" cannot say which request it means.
+  To answer a specific older message, swipe-reply to it.
 
 To check state or disconnect:
 
