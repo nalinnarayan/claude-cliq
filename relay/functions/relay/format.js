@@ -51,17 +51,24 @@ function normaliseHeaders(raw) {
   });
 }
 
-/** A title for the table, taken from the line above when it reads like one. */
+/**
+ * A title for the table, taken from the line above when it reads like one.
+ * Returns the source line index too, so the caller can drop that line from
+ * the prose -- a bare "Wait limits:" with nothing under it reads as broken,
+ * since Cliq renders every slide after the text.
+ */
 function titleFor(lines, start) {
   for (let i = start - 1; i >= 0 && i >= start - 2; i--) {
     const prev = (lines[i] || '').trim();
     if (!prev) continue;
     const heading = prev.match(/^#{1,6}\s+(.*)$/);
-    if (heading) return heading[1].trim().slice(0, 100);
-    if (prev.endsWith(':')) return prev.slice(0, -1).replace(/\*\*/g, '').trim().slice(0, 100);
-    return '';
+    if (heading) return { title: heading[1].trim().slice(0, 100), from: i };
+    if (prev.endsWith(':')) {
+      return { title: prev.slice(0, -1).replace(/\*\*/g, '').trim().slice(0, 100), from: i };
+    }
+    return { title: '', from: -1 };
   }
-  return '';
+  return { title: '', from: -1 };
 }
 
 /**
@@ -72,6 +79,7 @@ function splitTables(markdown) {
   const lines = String(markdown || '').split('\n');
   const out = [];
   const slides = [];
+  const marks = [];          // where each table was lifted from
   let inFence = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -95,9 +103,18 @@ function splitTables(markdown) {
         rows.push(row);
       }
       if (rows.length) {
-        const title = titleFor(lines, i);
+        const { title, from } = titleFor(lines, i);
+        // The title line is now the slide's heading; leaving it in the prose
+        // would duplicate it, or strand a label above nothing. Skip back over
+        // any blank lines between the label and the table before removing it.
+        if (from >= 0) {
+          let k = out.length - 1;
+          while (k >= 0 && !out[k].trim()) k--;
+          if (k >= 0 && out[k].trim() === lines[from].trim()) out.splice(k, 1);
+        }
         slides.push({ type: 'table', ...(title ? { title } : {}),
                       data: { headers, rows } });
+        marks.push({ at: out.length, title });
         i = j - 1;              // skip the consumed table
         continue;
       }
@@ -105,8 +122,27 @@ function splitTables(markdown) {
     out.push(line);
   }
 
+  // Slides always render after the text, so a table lifted from the middle
+  // of a message ends up below prose that discussed it. Leave a signpost --
+  // but only when something actually follows, since a table at the very end
+  // needs no explanation.
+  for (let k = marks.length - 1; k >= 0; k--) {
+    const { at, title } = marks[k];
+    const followed = out.slice(at).some((l) => l.trim());
+    if (!followed) continue;
+    const label = title ? `*${title}*` : 'table';
+    const which = slides.length > 1 ? ` (${k + 1} of ${slides.length})` : '';
+    out.splice(at, 0, `_↓ ${label}${which} is shown below_`);
+  }
+
   // Collapse the blank space a lifted table leaves behind.
-  const text = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  let text = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  // A message that was nothing but a label and a table leaves no prose at
+  // all. Cliq needs some text, and the label is the honest thing to use.
+  if (!text && slides.length) {
+    text = slides[0].title || 'Details';
+  }
   return { text, slides };
 }
 

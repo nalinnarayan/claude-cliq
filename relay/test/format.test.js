@@ -83,3 +83,21 @@ test('prose with no table is returned untouched', () => {
   assert.strictEqual(slides.length, 0);
   assert.strictEqual(text, src);
 });
+
+test('the title line is not left stranded in the prose', () => {
+  const { text } = splitTables('Wait limits:\n\n| A |\n| --- |\n| 1 |\n\nmore prose');
+  assert.doesNotMatch(text, /Wait limits:/, 'the label became the slide title');
+});
+
+test('a signpost appears only when prose follows the table', () => {
+  const mid = splitTables('intro\n\n| A |\n| --- |\n| 1 |\n\nafter');
+  assert.match(mid.text, /shown below/);
+  const end = splitTables('intro\n\n| A |\n| --- |\n| 1 |');
+  assert.doesNotMatch(end.text, /shown below/, 'nothing follows, so no signpost');
+});
+
+test('a message that is only a label and a table still has text', () => {
+  const { text, slides } = splitTables('Here are the limits:\n\n| A | B |\n| --- | --- |\n| 1 | 2 |');
+  assert.ok(text.length > 0, 'Cliq requires text');
+  assert.strictEqual(text, slides[0].title);
+});

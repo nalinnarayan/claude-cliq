@@ -11,9 +11,20 @@
 // at 15 seconds, and the real work (deciding what the reply means, resuming a
 // session) belongs on the laptop, not here.
 
+// A swipe/quote-reply arrives with an EMPTY message -- Cliq passes neither
+// the replied-to message nor the text typed into it. Say so, rather than
+// failing silently and leaving the user wondering why nothing happened.
+body = message.toString();
+if(body.trim() == "")
+{
+	response = Map();
+	response.put("text", "I couldn't read that reply. Type it in the message box rather than using reply-to — Cliq doesn't pass the text through on a quote-reply.");
+	return response;
+}
+
 payload = Map();
 payload.put("cliq_user", user.get("id"));
-payload.put("text", message.toString());
+payload.put("text", body);
 
 // The Cliq message id is what makes a repeated delivery idempotent on the
 // relay. It is not passed directly, but the triggering message is the most
