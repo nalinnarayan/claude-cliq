@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import sys
 from pathlib import Path
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
 from cliqlib import (CONFIG_PATH, Relay, RelayError, ensure_block_cap,
+                     why_not_resumable,
                      is_away, load_config, new_request_id, save_config,
                      set_away)
 
@@ -74,6 +76,14 @@ def cmd_away(args) -> int:
     if on:
         print("Away mode on — Claude will ping you in Cliq and wait for a "
               "reply before finishing.")
+        # Said now, because the alternative is discovering it only when a
+        # reply arrives too late to deliver.
+        blocked = why_not_resumable(os.getcwd())
+        if blocked:
+            print(f"\nNote: {blocked}.")
+            print("So if the wait window lapses I can't bring this session "
+                  "back from Cliq — your reply will wait until you're next "
+                  "at the terminal.")
     else:
         print("Away mode off — Claude still notifies Cliq but never waits.")
     return 0

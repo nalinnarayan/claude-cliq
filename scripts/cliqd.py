@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
-from cliqlib import (DAEMON_LOCK, STATE_DIR, Config, RateLimited, Relay,
+from cliqlib import (DAEMON_LOCK, why_not_resumable, STATE_DIR, Config, RateLimited, Relay,
                      RelayError, backoff_sleep, load_config, log, new_request_id)
 
 # The daemon outlives any single session, so it happily keeps running code
@@ -157,31 +157,6 @@ def deliver_held(relay: Relay) -> None:
         else:
             remaining.append(item)
     _write_held(remaining)
-
-
-def why_not_resumable(cwd: str) -> str | None:
-    """Reasons a background resume cannot work, known before we offer it.
-
-    `claude --bg --resume` refuses in an untrusted folder, and refuses in the
-    home directory no matter what -- it is "trusted one session at a time".
-    Checking first means not offering a button that cannot do anything.
-    """
-    if not cwd:
-        return "I don't know which folder that session was in"
-    home = str(Path.home())
-    if cwd.rstrip("/") == home.rstrip("/"):
-        return ("that session is running in your home directory, which "
-                "Claude Code will not resume in the background")
-    try:
-        data = json.loads((Path.home() / ".claude.json").read_text())
-        entry = (data.get("projects") or {}).get(cwd) or {}
-        if not entry.get("hasTrustDialogAccepted"):
-            where = cwd.replace(home, "~")
-            return (f"{where} isn't a trusted folder yet — run `claude` there "
-                    f"once and accept the prompt")
-    except Exception:
-        pass            # cannot tell; let the resume try and report for itself
-    return None
 
 
 def resume_session(session_id: str, cwd: str, text: str) -> tuple[bool, str]:
