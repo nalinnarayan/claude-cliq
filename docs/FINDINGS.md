@@ -155,3 +155,25 @@ Fixed by letting the tool call cancel its own waiter:
   instead of waiting out the window
 - permissions get their own shorter window (`permission_wait_seconds`, 300s),
   since they are answered in seconds when answered at all
+
+## v3 renders Markdown; v2 does not
+
+Not a setting — a difference between endpoints, found by probing the live API.
+The published spec documents `styles: {markdown: true}`, but the live v3 bot
+endpoint **rejects `styles` outright** as an unknown key. It renders bold,
+italic, code, fences, lists, headings and links in `text` anyway; v2 shows the
+same text raw, which is why every message looked like stray asterisks.
+
+Other v3 differences, each learned from a 400 rather than the docs:
+
+| | v2 | v3 |
+| --- | --- | --- |
+| `user_ids` | body field (`userids`) | **query parameter** |
+| `sync_message` | body field, returns `message_id` | **not accepted** |
+| `styles` | — | **rejected**, despite the spec |
+| `slides` / `buttons` / `card` | — | accepted |
+| Markdown in `text` | raw | rendered |
+
+Unknown body keys are a hard 400 on v3, so the client sends only an allow-list.
+Losing `sync_message` costs the sent `message_id`; the buttons design does not
+need it, since binding comes from `arguments.req`.

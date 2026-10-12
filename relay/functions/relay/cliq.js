@@ -3,16 +3,34 @@
  * Outbound to Zoho Cliq.
  *
  * One webhook token for the whole deployment, owned by one account -- no
- * per-user OAuth anywhere. `/message` posts as the bot into the target
+ * per-user OAuth anywhere. `/messages` posts as the bot into the target
  * user's DM. (`/incoming` is a different thing entirely: it feeds params to
  * a Deluge handler and posts nothing by itself.)
+ *
+ * v3, not v2, for two reasons established by testing against the live API:
+ * v3 renders Markdown in `text` while v2 shows it raw, and only v3 accepts
+ * `slides` (native tables) and `buttons`.
+ *
+ * v3 differs from v2 in ways the docs do not lead with, each confirmed by a
+ * 400 from the live endpoint:
+ *   - `user_ids` is a QUERY parameter, not a body field
+ *   - `sync_message` is not accepted at all, so no message_id comes back
+ *   - `styles` is rejected outright, despite being in the published spec
+ *   - unknown body keys are a hard error, so send only what is accepted
  */
+
+const ALLOWED_KEYS = ['slides', 'buttons', 'card', 'bot'];
 
 function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch }) {
   const base = (baseUrl || 'https://cliq.zoho.com').replace(/\/$/, '');
 
   return {
-    async dm(emailOrZuid, text) {
+    /**
+     * DM a user as the bot.
+     * `extras` may carry slides / buttons / card; anything else is dropped,
+     * because v3 rejects the whole request on an unknown key.
+     */
+    async dm(emailOrZuid, text, extras = {}) {
       // Checked here rather than at construction: the client is built for
       // every request, so throwing early would take down pairing and
       // long-polling too, which need no Cliq credential at all.
@@ -22,18 +40,20 @@ function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch })
         err.status = 503;
         throw err;
       }
-      const url = `${base}/api/v2/bots/${encodeURIComponent(botName)}/message`
-                + `?zapikey=${encodeURIComponent(zapikey)}`;
+
+      const url = `${base}/api/v3/bots/${encodeURIComponent(botName)}/messages`
+                + `?zapikey=${encodeURIComponent(zapikey)}`
+                + `&user_ids=${encodeURIComponent(emailOrZuid)}`;
+
+      const body = { text };
+      for (const k of ALLOWED_KEYS) {
+        if (extras[k] !== undefined && extras[k] !== null) body[k] = extras[k];
+      }
+
       const res = await fetchImpl(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          userids: emailOrZuid,
-          // Without this Cliq returns nothing useful; with it we get the
-          // per-user chat_id and message_id back.
-          sync_message: true,
-        }),
+        body: JSON.stringify(body),
       });
       const raw = await res.text();
       if (!res.ok) {
@@ -48,4 +68,4 @@ function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch })
   };
 }
 
-module.exports = { createCliq };
+module.exports = { createCliq, ALLOWED_KEYS };
