@@ -246,3 +246,16 @@ with nothing armed. Usually true, but not when the session has been released
 at the ceiling — and claiming to know a state we cannot observe reads as the
 bridge being confused. It now says only what it does: the reply is kept and
 will be passed on at the next pause.
+
+## A plugin cannot set env for its users
+
+`plugin.json` carries metadata only — name, description, version, author and
+such. There is no way for a plugin to contribute an environment variable or a
+settings entry, confirmed against every manifest in the official marketplace.
+
+That matters for `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`. Claude Code stops
+honouring Stop-hook blocks after 8 consecutive ones with no tool call between;
+raising it is what keeps a long Cliq conversation alive. Setting it once in
+one person's `~/.claude/settings.json` does nothing for anyone else, so
+pairing writes it into each user's own settings and says so. It needs a
+restart to take effect.

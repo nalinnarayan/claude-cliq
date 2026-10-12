@@ -29,6 +29,13 @@ you again when it's done.
    ```
    /claude-cliq:pair <code>
    ```
+   Pairing also raises `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` in your
+   `~/.claude/settings.json`, and tells you it has. Claude Code stops
+   honouring a Stop-hook block after 8 consecutive ones with no tool call
+   between — a guard against hooks that block unconditionally. This one waits
+   on a human every time, so it cannot spin, and without the raise a long
+   back-and-forth from Cliq gets cut off. **Restart Claude Code afterwards**
+   for it to apply.
 4. When you step away:
    ```
    /claude-cliq:away on

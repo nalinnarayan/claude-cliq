@@ -168,6 +168,48 @@ def clear_blanket_approvals() -> int:
     return n
 
 
+SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
+# Claude Code stops honouring Stop-hook blocks after this many consecutive
+# ones with no tool call between. The guard is aimed at hooks that block
+# unconditionally; this one cannot spin, because every block waits on a human.
+BLOCK_CAP = "100"
+
+
+def ensure_block_cap() -> str | None:
+    """Raise the Stop-hook block cap in the user's settings.
+
+    A plugin cannot contribute env -- plugin.json carries metadata only -- so
+    without this each person silently keeps the default of 8 and their
+    conversations get cut off after a handful of exchanges.
+
+    Returns a line describing what changed, or None if nothing needed doing.
+    """
+    key = "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP"
+    try:
+        data = json.loads(SETTINGS_PATH.read_text()) if SETTINGS_PATH.exists() else {}
+    except Exception as exc:
+        return f"couldn't read {SETTINGS_PATH}: {exc}"
+    env = data.get("env") or {}
+    current = str(env.get(key, "")).strip()
+    try:
+        if current and int(current) >= int(BLOCK_CAP):
+            return None                     # already as high or higher
+    except ValueError:
+        pass                                # unparseable: replace it
+
+    env[key] = BLOCK_CAP
+    data["env"] = env
+    try:
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SETTINGS_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        tmp.replace(SETTINGS_PATH)
+    except Exception as exc:
+        return f"couldn't write {SETTINGS_PATH}: {exc}"
+    was = f" (was {current})" if current else ""
+    return f"Set {key}={BLOCK_CAP} in {SETTINGS_PATH}{was} — restart Claude Code for it to apply."
+
+
 def is_away() -> bool:
     """Away mode is opt-in blocking. Disarmed, nothing ever holds a session."""
     return AWAY_PATH.exists()

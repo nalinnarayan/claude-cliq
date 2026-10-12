@@ -17,8 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
-from cliqlib import (CONFIG_PATH, Relay, RelayError, is_away, load_config,
-                     new_request_id, save_config, set_away)
+from cliqlib import (CONFIG_PATH, Relay, RelayError, ensure_block_cap,
+                     is_away, load_config, new_request_id, save_config,
+                     set_away)
 
 DEFAULT_RELAY = "https://claude-cliq.catalystserverless.com/server/relay"
 
@@ -43,6 +44,9 @@ def cmd_pair(args) -> int:
     save_config(cfg)
     print(f"Paired with {res.get('cliq_user', 'your Cliq account')}.")
     print(f"Token stored in {CONFIG_PATH} (0600).")
+    note = ensure_block_cap()
+    if note:
+        print(note)
     print("Run `/claude-cliq:away on` when you step away and Claude will wait for "
           "your replies in Cliq.")
     return 0
@@ -82,6 +86,9 @@ def cmd_status(args) -> int:
     print(f"enabled    : {cfg.enabled}")
     print(f"away mode  : {'on' if is_away() else 'off'}")
     print(f"wait window: {cfg.wait_seconds}s  (poll leg {cfg.poll_seconds}s)")
+    import os
+    cap = os.environ.get("CLAUDE_CODE_STOP_HOOK_BLOCK_CAP")
+    print(f"block cap  : {cap or 'default (8) — run pair again, then restart'}")
     armed = waiter.active()
     print(f"waiting now: {len(armed)}" + (
         " — " + ", ".join(w["request_id"] for w in armed) if armed else ""))
