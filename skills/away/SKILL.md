@@ -20,8 +20,15 @@ ever blocks and the terminal behaves exactly as it would without this plugin.
 Cliq and then waits for a reply before continuing. Permission requests that go
 unanswered fall back to the normal terminal prompt rather than being denied.
 
-If the user replies after the wait window closes, the reply is not lost — the
-daemon asks in Cliq whether to resume that session in the background.
+It waits **30 minutes at a time**, and that clock restarts on every reply, so
+a long back-and-forth never runs out of window — only a long silence does.
+After **100 replies in a row with no tool call between them**, the bot says so
+and stops waiting.
+
+Past either limit the session is released. A released interactive session
+cannot be fed from outside, so a later reply gets told where the work is and
+the user picks it up at the terminal. Say that plainly if they ask; there is no
+resume-from-Cliq path.
 
 Turning away mode **off** also revokes any blanket `all` approvals the user
 granted from Cliq — those were a concession to being away, not standing

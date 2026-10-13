@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
 from cliqlib import (CONFIG_PATH, Relay, RelayError, ensure_block_cap,
-                     why_not_resumable,
                      is_away, load_config, new_request_id, save_config,
                      set_away)
 
@@ -76,19 +75,16 @@ def cmd_away(args) -> int:
     if on:
         print("Away mode on — Claude will ping you in Cliq and wait for a "
               "reply before finishing.")
-        # Said now, because the alternative is discovering it only when a
-        # reply arrives too late to deliver.
         # Start it now rather than waiting for the next hook: the user may
         # walk away before one fires, and then nothing collects their reply.
         import waiter
         waiter.ensure_daemon()
 
-        blocked = why_not_resumable(os.getcwd())
-        if blocked:
-            print(f"\nNote: {blocked}.")
-            print("So if the wait window lapses I can't bring this session "
-                  "back from Cliq — your reply will wait until you're next "
-                  "at the terminal.")
+        # Said up front, because the alternative is learning it from a reply
+        # that goes nowhere.
+        print(f"\nIt waits {load_config().wait_seconds // 60} minutes at a "
+              f"time, restarting that clock on every reply. Past it the "
+              f"session is released and you carry on at the terminal.")
     else:
         print("Away mode off — Claude still notifies Cliq but never waits.")
     return 0
@@ -101,7 +97,7 @@ def cmd_status(args) -> int:
     print(f"enabled    : {cfg.enabled}")
     print(f"away mode  : {'on' if is_away() else 'off'}")
     print(f"wait window: {cfg.wait_seconds}s  (poll leg {cfg.poll_seconds}s)")
-    import os
+    print(f"max replies: {cfg.max_block_streak} in a row without a tool call")
     cap = os.environ.get("CLAUDE_CODE_STOP_HOOK_BLOCK_CAP")
     print(f"block cap  : {cap or 'default (8) — run pair again, then restart'}")
     armed = waiter.active()

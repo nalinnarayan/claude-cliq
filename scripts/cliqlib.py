@@ -56,9 +56,10 @@ class Config:
     #
     # Thirty minutes: long enough to cover a meeting, which is the realistic
     # away case. Past this the session is released, and an interactive
-    # terminal sitting at the prompt cannot be fed from outside -- resuming
-    # would fork a copy. The clock restarts on every reply, so this bounds a
-    # single gap, not the conversation. Hook is registered at 2100s.
+    # terminal sitting at the prompt cannot be fed from outside at all -- so
+    # a later reply is answered with "pick it up at the terminal". The clock
+    # restarts on every reply, so this bounds a single gap, not the whole
+    # conversation. Hook is registered at 2100s.
     wait_seconds: int = 1800
     # Permissions get a shorter hold than questions. They are answered in
     # seconds when answered at all, and a permission waiter that outlives its
@@ -68,13 +69,13 @@ class Config:
     blanket_approval_seconds: int = 1800
     # Release after this many consecutive no-tool-call blocks.
     #
-    # Claude Code stops honouring blocks at CLAUDE_CODE_STOP_HOOK_BLOCK_CAP
-    # (8 by default), which is a guard against hooks that block
-    # unconditionally. This one cannot spin: every block requires a human
-    # reply. So the cap is raised to 100 in settings.json and this stays
-    # below it -- still a deliberate exit rather than a silent one, but far
-    # enough out that an ordinary conversation never reaches it.
-    max_block_streak: int = 80
+    # A hundred exchanges, and the user is told when they reach it. Claude
+    # Code stops honouring blocks at CLAUDE_CODE_STOP_HOOK_BLOCK_CAP (8 by
+    # default) -- a guard against hooks that block unconditionally, which
+    # this one cannot do since every block waits on a human. That cap is
+    # raised above this number in settings.json so the limit the user hears
+    # about is the one they actually hit.
+    max_block_streak: int = 100
     # One long-poll leg. Catalyst caps a function at 30s, so stay under it.
     poll_seconds: int = 25
     enabled: bool = True
@@ -172,7 +173,9 @@ SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 # Claude Code stops honouring Stop-hook blocks after this many consecutive
 # ones with no tool call between. The guard is aimed at hooks that block
 # unconditionally; this one cannot spin, because every block waits on a human.
-BLOCK_CAP = "100"
+# Set above Config.max_block_streak so our own announced limit lands first --
+# reaching Claude Code's cap instead ends the exchange with no explanation.
+BLOCK_CAP = "120"
 
 
 def ensure_block_cap() -> str | None:
@@ -208,31 +211,6 @@ def ensure_block_cap() -> str | None:
         return f"couldn't write {SETTINGS_PATH}: {exc}"
     was = f" (was {current})" if current else ""
     return f"Set {key}={BLOCK_CAP} in {SETTINGS_PATH}{was} — restart Claude Code for it to apply."
-
-
-def why_not_resumable(cwd: str) -> str | None:
-    """Reasons a background resume cannot work, known before we offer it.
-
-    `claude --bg --resume` refuses in an untrusted folder, and refuses in the
-    home directory no matter what -- it is "trusted one session at a time".
-    Checking first means not offering a button that cannot do anything.
-    """
-    if not cwd:
-        return "I don't know which folder that session was in"
-    home = str(Path.home())
-    if cwd.rstrip("/") == home.rstrip("/"):
-        return ("that session is running in your home directory, which "
-                "Claude Code will not resume in the background")
-    try:
-        data = json.loads((Path.home() / ".claude.json").read_text())
-        entry = (data.get("projects") or {}).get(cwd) or {}
-        if not entry.get("hasTrustDialogAccepted"):
-            where = cwd.replace(home, "~")
-            return (f"{where} isn't a trusted folder yet — run `claude` there "
-                    f"once and accept the prompt")
-    except Exception:
-        pass            # cannot tell; let the resume try and report for itself
-    return None
 
 
 def is_away() -> bool:

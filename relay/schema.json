@@ -173,7 +173,7 @@
     {
       "table_name": "Sessions",
       "table_scope": "GLOBAL",
-      "_purpose": "The last session each user was notified about, so a late reply knows what to offer to resume.",
+      "_purpose": "The last session each user was notified about, so a reply nothing is waiting for can name where that work is.",
       "columns": [
         {
           "column_name": "cliq_user",
@@ -198,7 +198,7 @@
           "data_type": "text",
           "is_mandatory": "false",
           "audit_consent": "false",
-          "description": "Working directory; Text not varchar because a truncated path would break --resume"
+          "description": "Working directory; Text not varchar because a truncated path would be shown to the user"
         },
         {
           "column_name": "request_id",

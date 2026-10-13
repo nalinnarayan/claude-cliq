@@ -22,8 +22,8 @@ set by `wait_seconds` in config (default 300s).
 ## Hooks fire inside `--bg` sessions
 
 A session resumed with `claude --resume <id> --bg "<prompt>"` runs its `Stop`
-hook normally. This is what closes the loop: a late reply resumes the session
-in the background, and that session pings Cliq again when it finishes.
+hook normally — so a background session pings Cliq exactly like a terminal
+one. Measured, but no longer used: see *Resume removed* below.
 
 ## `--resume --bg` continues the same session with full context
 
@@ -47,8 +47,9 @@ Workspace not trusted. The home directory is trusted one session at a time —
 start this from an interactive terminal there, or from a project directory.
 ```
 
-The home directory never qualifies, no matter what. The daemon detects this and
-says what fixes it rather than reporting a raw error.
+The home directory never qualifies, no matter what. Between this, the live-vs-
+idle distinction and the trust prompt, the setup surface was larger than the
+feature it bought — which is why resume was dropped.
 
 ## Stop hook payload
 
@@ -83,8 +84,8 @@ The two concerns are separate:
 | true | on | yes | no |
 
 Notify always; block only when away mode is on *and* we did not just block.
-A reply to the released message still works — it takes the late-reply path
-and resumes the session in the background.
+Nothing consumes a reply to a released message, so the bot says where the work
+is instead.
 
 ### …but it must not release the session either
 
@@ -102,8 +103,10 @@ but the reply was dropped and the conversation was stuck.
 Blocking repeatedly is in fact safe **in this design**, because every block
 requires a human reply — it cannot spin on its own. The only real ceiling is
 Claude Code refusing after 8 consecutive blocks with no tool call in between.
-So the hook now counts its own streak and releases at 6, deliberately and with
-an explanation, instead of having a block silently ignored at 8. Any tool call
+So the hook counts its own streak and releases at `max_block_streak` (100),
+deliberately and with an explanation, instead of having a block silently
+ignored. `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` is set higher still (120) so the
+limit the user is told about is the one they actually reach. Any tool call
 resets the counter, so a session doing real work holds indefinitely.
 
 ## Decision: replies land inside the window, or you go to the terminal
@@ -122,10 +125,9 @@ resumed with no flags, and `claude attach` / Ctrl+Z move between terminal and
 background. But that means starting away-work differently from ordinary work,
 plus session housekeeping, to serve a minority case.
 
-So: the wait window (10 minutes, `wait_seconds`) is the contract. Past it the
-session is released and the reply goes to the terminal. The late-reply resume
-still fires for sessions that genuinely ended — a closed terminal or a
-finished headless run — which costs nothing extra since it is already built.
+So: the wait window (30 minutes, `wait_seconds`, restarting on every reply) is
+the contract. Past it the session is released and the work is picked up at the
+terminal.
 
 ## A permission answered at the terminal strands its Cliq waiter
 
@@ -260,20 +262,26 @@ one person's `~/.claude/settings.json` does nothing for anyone else, so
 pairing writes it into each user's own settings and says so. It needs a
 restart to take effect.
 
-## Offer a resume only when it can actually happen
+## Resume removed
 
-`claude --bg --resume` refuses in an untrusted folder, and refuses in the home
-directory however it is configured — "trusted one session at a time". Both are
-knowable before offering anything: `~/.claude.json` records
-`hasTrustDialogAccepted` per project.
+Resuming an idle session from Cliq was built and then taken out. The mechanism
+itself works — `--resume --bg` continues the same session with full context,
+and its hooks fire. What sank it was everything around it:
 
-The bot was offering a Resume button and only discovering the refusal after
-the tap, which reads as the feature being broken rather than as a setup step.
-It now says which of the two applies, and keeps the reply either way.
+- a session in `$HOME` can never be resumed in the background, and `$HOME` is
+  where sessions get started;
+- any other folder needs its trust prompt accepted first;
+- a *live* idle session cannot be resumed at all, only forked, so the daemon
+  had to tell live from dead before deciding what to offer;
+- and the collector has to outlive Claude itself to receive the late reply,
+  which hooks cannot arrange — Claude Code reaps processes they spawn. That
+  needs a LaunchAgent, i.e. a second always-on component.
 
-Worth knowing for testing: a session started in `$HOME` can never be resumed
-in the background, so the late-reply path cannot be exercised from there at
-all.
+Four conditions, a confirm-then-resume round trip in Cliq, and a background
+daemon, to serve the case where someone replies after half an hour of silence.
+The contract is now one sentence: **a reply reaches a session whose hook is
+still waiting, and nothing else.** Past the window the bot names the folder and
+says to carry on there.
 
 ## Arming a waiter once is not enough
 
@@ -303,10 +311,11 @@ replies are expected; shutting down the one thing that collects them
 guarantees the failure away mode exists to prevent. It now stays alive while
 away mode is on, and `away on` starts it rather than waiting for a hook.
 
-Two smaller gaps in the same path: a reply arriving with nothing waiting was
-discarded with a "nothing is waiting" notice, and is now held for half an
-hour; and `wait()` only revived the daemon while a hook was actively waiting,
-which does nothing between turns.
+Two smaller gaps in the same path: a reply arriving while a *live* session was
+mid-task was discarded with a "nothing is waiting" notice, and is now held for
+half an hour until its next `Stop`; and `wait()` only revived the daemon while
+a hook was actively waiting, which does nothing between turns. A reply for a
+session that is gone is not held — there is nothing left to hand it to.
 
 ## Cliq reads ~text~ as strikethrough
 

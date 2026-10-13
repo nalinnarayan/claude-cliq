@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Session liveness registry.
 
-The daemon must never run `--bg --resume` against a session that is still
-open in a terminal -- that forks a copy instead of continuing it. These two
-hooks keep a pid file per session so the daemon can tell the difference.
+A reply that nothing is waiting for is treated differently depending on
+whether its session is still alive: alive means its `Stop` hook will fire
+again shortly, so the reply is held for it, while a session that has gone
+means saying so. These two hooks keep a pid file per session so the daemon
+can tell the two apart.
 
     on_session.py start   <- SessionStart
     on_session.py end     <- SessionEnd

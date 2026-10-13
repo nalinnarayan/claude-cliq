@@ -269,8 +269,8 @@ def unregister_session(session_id: str) -> None:
 def session_live(session_id: str) -> bool:
     """True if that session still has a running process.
 
-    Used to avoid `--bg --resume` against a live session, which forks a copy
-    instead of continuing it.
+    Tells a reply worth holding (the session is alive, so a `Stop` hook is
+    coming) from one worth answering with "carry on at the terminal".
     """
     p = SESSIONS_DIR / f"{session_id}.json"
     try:

@@ -36,8 +36,9 @@ def main() -> int:
     # count the runs where it did not.
     streak = block_streak(session_id, bump=resumed) if session_id else 0
     # Blocking repeatedly is safe here because every block requires a human
-    # reply -- this cannot spin on its own. The only real ceiling is Claude
-    # Code refusing after 8 consecutive no-tool blocks, so stop just short.
+    # reply -- this cannot spin on its own. The ceiling exists so the
+    # back-and-forth ends with an explanation rather than Claude Code quietly
+    # refusing to honour another block.
     at_ceiling = streak >= cfg.max_block_streak
     armed = is_away() and not at_ceiling
     rid = new_request_id()
@@ -64,7 +65,10 @@ def main() -> int:
     reply = H.block_for_reply(cfg, rid, session_id=session_id, kind="finished",
                               cwd=cwd)
     if not reply:
-        return 0        # window lapsed; the daemon owns it from here
+        # Window lapsed. The session is released and cannot be fed from
+        # outside again; a later reply is answered by the daemon with where
+        # to pick the work up.
+        return 0
 
     answer = (reply.get("text") or "").strip()
     if not answer:

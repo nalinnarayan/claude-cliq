@@ -12,9 +12,10 @@ Claude finishes  ──▶  Cliq DM  ──▶  you reply "add tests too"  ─�
 Claude needs sudo ──▶ Cliq DM  ──▶  you reply "yes abcde"      ──▶  the command runs
 ```
 
-Reply within the wait window and work continues in your terminal. Reply an hour
-later and it resumes in the background — same session, full context — and pings
-you again when it's done.
+Reply within the wait window and work continues in your terminal. The window is
+30 minutes, restarting on every reply, for up to 100 replies in a row. Reply
+after that and the bot tells you where the work is — a released session can
+only be picked up at the terminal.
 
 ## For a teammate: install
 
@@ -242,8 +243,10 @@ file is `0600` and `/claude-cliq:pair` revokes any previous token.
   rest — breaching it locks everyone out for 10 minutes.
 - **Deluge consent expires every 60 days** per user. It presents as the bot
   going quiet; re-subscribing fixes it.
-- `--bg --resume` **requires a trusted workspace**. The home directory never
-  qualifies. Open the folder once with `claude` and accept the prompt.
+- **A released session cannot be resumed from Cliq.** An interactive session
+  sitting at its prompt takes input from its terminal and nowhere else, so once
+  the wait window or the 100-reply ceiling is reached, the work is picked up
+  there. The bot says so rather than pretending to deliver.
 - Cliq does not redeliver a failed handler call, so a dropped reply is dropped.
 
 ## Layout

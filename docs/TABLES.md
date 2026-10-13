@@ -52,13 +52,13 @@ _Replies waiting to be collected by a long-poll. The hot path -- rows are delete
 
 ## Sessions
 
-_The last session each user was notified about, so a late reply knows what to offer to resume._
+_The last session each user was notified about, so a reply nothing is waiting for can name where that work is._
 
 | Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
 | `cliq_user` | varchar | Max Length **64** | **Mandatory**, **Unique** |  |
 | `session_id` | varchar | Max Length **64** | **Mandatory** |  |
-| `cwd` | text | no size field | — | Working directory; Text not varchar because a truncated path would break --resume |
+| `cwd` | text | no size field | — | Working directory; Text not varchar because a truncated path would be shown to the user |
 | `request_id` | varchar | Max Length **16** | — |  |
 | `ts` | bigint | no size field | — | Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away |
 
