@@ -43,8 +43,14 @@ def ready() -> tuple[Config, Relay] | tuple[None, None]:
 
 
 def short_cwd(cwd: str) -> str:
+    """Shorten a path for display, without the tilde.
+
+    Cliq reads ~text~ as strikethrough, so a message containing two paths
+    written as ~/foo strikes through everything between them. Using an
+    ellipsis sidesteps it entirely.
+    """
     try:
-        return cwd.replace(str(Path.home()), "~")
+        return cwd.replace(str(Path.home()), "…")
     except Exception:
         return cwd
 
@@ -61,8 +67,18 @@ def git_branch(cwd: str) -> str:
     return ""
 
 
+def defuse_cliq_markup(text: str) -> str:
+    """Neutralise stray tildes.
+
+    Cliq reads ~text~ as strikethrough. Claude's output contains tildes in
+    paths and in approximations ("~5 minutes"), and any two of them in one
+    message strike out everything between.
+    """
+    return (text or "").replace("~", "∼")        # U+223C, looks the same
+
+
 def summarize(text: str, limit: int = MAX_SUMMARY) -> str:
-    text = (text or "").strip()
+    text = defuse_cliq_markup(text).strip()
     if len(text) <= limit:
         return text
     return text[:limit].rsplit(" ", 1)[0] + " …"

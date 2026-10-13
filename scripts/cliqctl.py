@@ -78,6 +78,11 @@ def cmd_away(args) -> int:
               "reply before finishing.")
         # Said now, because the alternative is discovering it only when a
         # reply arrives too late to deliver.
+        # Start it now rather than waiting for the next hook: the user may
+        # walk away before one fires, and then nothing collects their reply.
+        import waiter
+        waiter.ensure_daemon()
+
         blocked = why_not_resumable(os.getcwd())
         if blocked:
             print(f"\nNote: {blocked}.")

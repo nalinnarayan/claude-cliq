@@ -290,3 +290,28 @@ Related: diagnosing with `/await` **destroys the evidence**, because
 collecting a message deletes it. Two of the replies investigated today were
 consumed by the act of looking at them. `/peek` returns the queue without
 consuming it.
+
+## Away mode has to keep the collector alive
+
+Every "I replied and nothing happened" tonight had one cause: nothing was
+running to collect the reply. The reply reached the relay and bound correctly
+every time.
+
+The daemon exited after thirty minutes idle **even with away mode on** — which
+is exactly backwards. Away mode is the user saying they have stepped out and
+replies are expected; shutting down the one thing that collects them
+guarantees the failure away mode exists to prevent. It now stays alive while
+away mode is on, and `away on` starts it rather than waiting for a hook.
+
+Two smaller gaps in the same path: a reply arriving with nothing waiting was
+discarded with a "nothing is waiting" notice, and is now held for half an
+hour; and `wait()` only revived the daemon while a hook was actively waiting,
+which does nothing between turns.
+
+## Cliq reads ~text~ as strikethrough
+
+Messages print paths like `~/claude-cliq`, so any two tildes in one message
+struck out everything between them — and Claude's prose has tildes in paths
+and approximations ("~5 minutes"). Paths now display with an ellipsis, and
+stray tildes in message bodies are replaced with U+223C, which looks the same
+and carries no markup meaning.

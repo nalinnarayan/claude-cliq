@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
-from cliqlib import (DAEMON_LOCK, why_not_resumable, STATE_DIR, Config, RateLimited, Relay,
+from cliqlib import (DAEMON_LOCK, is_away, why_not_resumable, STATE_DIR, Config, RateLimited, Relay,
                      RelayError, backoff_sleep, load_config, log, new_request_id)
 
 # The daemon outlives any single session, so it happily keeps running code
@@ -58,7 +58,7 @@ IDLE_POLL_EVERY = 30.0
 # How long a reply sent while Claude was busy waits for it to pause. Long
 # enough to cover a tool call or two, short enough that it can't resurface
 # against some unrelated later question.
-HOLD_FOR = 10 * 60
+HOLD_FOR = 30 * 60
 
 
 def read_cursor() -> float:
@@ -206,7 +206,12 @@ def handle_unmatched(relay: Relay, text: str) -> None:
 
     last = _last_notified()
     if not last or time.time() - last.get("ts", 0) > IDLE_GRACE:
-        _notify(relay, "Nothing is waiting on a reply right now.", kind="ack")
+        # Keep it rather than discarding it. The user chose to send this; the
+        # fact that nothing happens to be waiting is our problem, not theirs.
+        # It expires on its own if they never come back to it.
+        hold_reply(text, "")
+        _notify(relay, "Nothing's waiting on a reply right now — I've kept "
+                       "that for when Claude next pauses.", kind="ack")
         return
 
     session_id, cwd = last["session_id"], last.get("cwd", "")
@@ -236,7 +241,7 @@ def handle_unmatched(relay: Relay, text: str) -> None:
     rid = new_request_id()
     _set_pending_resume({"request_id": rid, "session_id": session_id,
                          "cwd": cwd, "text": text, "ts": time.time()})
-    where = cwd.replace(str(Path.home()), "~") or "that session"
+    where = cwd.replace(str(Path.home()), "…") or "that session"
     _notify(relay,
             f"That session in {where} has gone idle.\n"
             f"Resume it in the background with your reply?",
@@ -277,6 +282,12 @@ def _notify(relay: Relay, text: str, *, kind: str, request_id: str = "",
 
 
 def should_keep_running() -> bool:
+    # Away mode is the user saying "I've stepped out, expect replies". Exiting
+    # then is exactly backwards: a reply arrives, nothing is listening, and it
+    # sits in the relay until the user is back at the terminal -- which is the
+    # situation away mode exists to avoid.
+    if is_away():
+        return True
     if waiter.active():
         return True
     last = _last_notified()
