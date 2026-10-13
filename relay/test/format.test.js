@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { splitTables, splitRow, normaliseHeaders } = require('../functions/relay/format.js');
+const { splitTables, toCliqMarkdown, splitRow, normaliseHeaders } = require('../functions/relay/format.js');
 
 test('a table becomes a slide and leaves the prose behind', () => {
   const { text, slides } = splitTables([
@@ -77,11 +77,13 @@ test('several tables each become their own slide, in order', () => {
   assert.deepStrictEqual(slides.map((s) => s.data.headers[0]), ['A', 'B']);
 });
 
-test('prose with no table is returned untouched', () => {
+test('prose with no table keeps its shape, dialect aside', () => {
+  // Not byte-identical any more: emphasis is converted to Cliq's dialect.
+  // What must survive is the structure -- no slides, nothing reflowed.
   const src = 'Just **bold** and `code`.\n\n- a bullet';
   const { text, slides } = splitTables(src);
   assert.strictEqual(slides.length, 0);
-  assert.strictEqual(text, src);
+  assert.strictEqual(text, 'Just *bold* and `code`.\n\n- a bullet');
 });
 
 test('the title line is not left stranded in the prose', () => {
@@ -100,4 +102,45 @@ test('a message that is only a label and a table still has text', () => {
   const { text, slides } = splitTables('Here are the limits:\n\n| A | B |\n| --- | --- |\n| 1 | 2 |');
   assert.ok(text.length > 0, 'Cliq requires text');
   assert.strictEqual(text, slides[0].title);
+});
+
+// Cliq's dialect: every doubled marker is one too many. Measured against the
+// live bot -- `**bold**` renders bold with the inner asterisks still visible.
+test('doubled emphasis markers are halved for Cliq', () => {
+  assert.strictEqual(toCliqMarkdown('**bold**'), '*bold*');
+  assert.strictEqual(toCliqMarkdown('~~gone~~'), '~gone~');
+  assert.strictEqual(toCliqMarkdown('**a** and **b**'), '*a* and *b*');
+});
+
+test('__bold__ becomes an asterisk pair, not an underscore one', () => {
+  // Cliq renders __x__ as an underline, and _x_ as italics; CommonMark means
+  // bold by it, and bold in Cliq is *x*.
+  assert.strictEqual(toCliqMarkdown('__bold__'), '*bold*');
+});
+
+test('single markers and ordinary prose are left alone', () => {
+  for (const src of ['*bold*', '_italic_', '~strike~', 'snake_case_name',
+                     'no markers at all']) {
+    assert.strictEqual(toCliqMarkdown(src), src);
+  }
+});
+
+test('emphasis inside code survives untouched', () => {
+  assert.strictEqual(toCliqMarkdown('`**kwargs`'), '`**kwargs`');
+  assert.strictEqual(toCliqMarkdown('```\nf(**kw)\n```'), '```\nf(**kw)\n```');
+});
+
+test('a delimiter run that hugs nothing is not emphasis', () => {
+  // Without CommonMark's hug rule these swallow the rest of the message.
+  assert.strictEqual(toCliqMarkdown('a ** b ** c'), 'a ** b ** c');
+  assert.strictEqual(toCliqMarkdown('2 ** 8 = 256'), '2 ** 8 = 256');
+});
+
+test('splitTables converts the dialect in prose and in cells', () => {
+  const { text, slides } = splitTables(
+    '**Verdict** below\n\n| What | **State** |\n| --- | --- |\n| bold | **broken** |');
+  assert.match(text, /\*Verdict\*/);
+  assert.doesNotMatch(text, /\*\*/, 'no doubled markers reach Cliq');
+  assert.strictEqual(slides[0].data.headers[1], '*State*');
+  assert.strictEqual(slides[0].data.rows[0]['*State*'], '*broken*');
 });

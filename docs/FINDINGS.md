@@ -262,6 +262,44 @@ one person's `~/.claude/settings.json` does nothing for anyone else, so
 pairing writes it into each user's own settings and says so. It needs a
 restart to take effect.
 
+## Cliq's markdown is not CommonMark
+
+Probed the live bot with one message carrying ten labelled variants.
+
+| sent | rendered |
+| --- | --- |
+| `**bold**` | bold, with the inner asterisks still visible — **broken** |
+| `*bold*` | bold |
+| `_italic_` | italics |
+| `__italic__` | underline, not bold |
+| `~~strike~~` | strikethrough, with the tildes still visible — **broken** |
+| `~strike~` | strikethrough |
+| `` `code` `` | code |
+| `## Heading two` | a real heading |
+| `- bullet item` | a literal hyphen, which reads fine anyway |
+| `[the repo](url)` | a link |
+
+Every doubled marker is one too many, and Claude writes doubled markers by
+default — so `**bold**` had been reaching Cliq verbatim for the whole project.
+`format.js` had always written its *own* labels with single asterisks, so the
+renderer knew the dialect; nothing converted the prose passing through it.
+
+`toCliqMarkdown()` now halves the doubled runs, skipping fences and code spans
+so `**kwargs` in a snippet survives, and keeping CommonMark's rule that a
+delimiter run must hug its content — without it, `2 ** 8` turns the rest of
+the message bold.
+
+Two notes for anyone extending this:
+
+- `defuse_cliq_markup` on the laptop still replaces every `~` with `∼`, so
+  strikethrough never reaches Cliq from a hook at all. That is deliberate:
+  Claude writes `~/path` far more often than it means to strike text out.
+- The probe itself exposed a real hazard. It was sent with the raw relay call
+  rather than through a hook, so it armed no waiter — the bot asked a question
+  and had nowhere to put the answer. The first reply bound correctly to the
+  right id and was dropped anyway. **Anything the bot asks outside a hook must
+  arm a waiter first.**
+
 ## Resume removed
 
 Resuming an idle session from Cliq was built and then taken out. The mechanism

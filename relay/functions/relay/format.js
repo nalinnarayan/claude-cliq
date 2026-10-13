@@ -1,17 +1,54 @@
 'use strict';
 /**
- * Split Markdown into what Cliq can render.
+ * Turn Markdown into what Cliq can render.
  *
- * v3 renders bold, italic, code, fences, lists, headings and links in `text`
- * on its own — but NOT tables, which arrive as raw pipes. So tables are
- * lifted out and emitted as native table slides, and everything else is left
- * alone.
+ * Two separate problems. Tables arrive as raw pipes, so they are lifted out
+ * and emitted as native table slides. And Cliq's markdown is not CommonMark:
+ * every doubled marker is a doubled marker too many. Measured against the
+ * live bot (see docs/FINDINGS.md):
+ *
+ *   **bold**     outer pair consumed, inner asterisks left visible  BROKEN
+ *   *bold*       bold
+ *   _italic_     italic
+ *   __italic__   underline, not bold
+ *   ~~strike~~   strikethrough with the tildes left visible         BROKEN
+ *   ~strike~     strikethrough
+ *   `code`       code
+ *   ## Heading   heading
+ *   - item       stays a literal hyphen, which reads fine anyway
+ *   [t](url)     link
+ *
+ * Claude writes CommonMark, so the doubled markers have to be halved on the
+ * way out. Headings, links and fences need nothing.
  *
  * Pure: no Cliq or network imports, so the parsing is directly testable.
  */
 
 const MAX_SLIDES = 5;          // keep a phone message readable
 const MAX_ROWS = 20;           // a long table is unreadable on a phone anyway
+
+// Fences and inline code spans, captured so split() keeps them. Emphasis
+// inside them is code -- `**kwargs` in a snippet must survive untouched.
+const CODE = /(```[\s\S]*?```|`[^`\n]*`)/g;
+
+/** Halve CommonMark's doubled emphasis markers into Cliq's single ones.
+ *
+ * The lookahead and the trailing \S are CommonMark's own rule: a delimiter
+ * run has to hug its content. Without them `** **` and a lone `**` in prose
+ * both swallow the rest of the message.
+ */
+function toCliqMarkdown(markdown) {
+  return String(markdown || '')
+    .split(CODE)
+    // split() on a capturing regex puts the code parts at odd indices.
+    .map((part, i) => (i % 2 ? part : part
+      .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '*$1*')
+      // CommonMark means bold by __this__; Cliq renders it as an underline,
+      // so it becomes an asterisk pair rather than an underscore one.
+      .replace(/__(?=\S)([\s\S]*?\S)__/g, '*$1*')
+      .replace(/~~(?=\S)([\s\S]*?\S)~~/g, '~$1~')))
+    .join('');
+}
 
 const isDivider = (line) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
 const looksLikeRow = (line) => line.includes('|') && /\|/.test(line.trim());
@@ -76,7 +113,8 @@ function titleFor(lines, start) {
  *          one slide per table in document order.
  */
 function splitTables(markdown) {
-  const lines = String(markdown || '').split('\n');
+  // Dialect first, so table cells are converted along with the prose.
+  const lines = toCliqMarkdown(markdown).split('\n');
   const out = [];
   const slides = [];
   const marks = [];          // where each table was lifted from
@@ -146,4 +184,5 @@ function splitTables(markdown) {
   return { text, slides };
 }
 
-module.exports = { splitTables, splitRow, normaliseHeaders, MAX_SLIDES, MAX_ROWS };
+module.exports = { splitTables, toCliqMarkdown, splitRow, normaliseHeaders,
+                   MAX_SLIDES, MAX_ROWS };
