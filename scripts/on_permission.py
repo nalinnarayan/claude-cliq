@@ -6,7 +6,7 @@ so the terminal prompt behaves exactly as normal: you are sitting right
 there, and a Cliq ping would be pure noise.
 
 ExitPlanMode arrives here too, which is what makes "release the next phase"
-work without any special casing.
+work.
 """
 
 from __future__ import annotations
@@ -19,6 +19,27 @@ from cliqlib import (blanket_approval_until, grant_blanket_approval,
                      is_away, new_request_id)
 
 PREVIEW_CHARS = 700
+
+# Claude Code throws away an `allow` that carries no `updatedInput` when the
+# tool is one it would otherwise have put a dialog in front of. The guard is
+# `if (!decision.updatedInput && tool.requiresUserInteraction?.()) return null`,
+# and the exempt set is exactly these two tools. Echoing the input straight
+# back is what makes the approval stick; without it the decision is discarded
+# and the terminal prompt opens with nobody sitting there.
+ECHOES_INPUT = {"ExitPlanMode", "AskUserQuestion"}
+
+
+def allow_decision(tool: str, tool_input: dict) -> dict:
+    """The allow half of the decision union.
+
+    There is no `reason` field on this branch -- the union is
+    {behavior, updatedInput?, updatedPermissions?} -- so anything explanatory
+    has to go to Cliq instead of into the decision.
+    """
+    decision: dict = {"behavior": "allow"}
+    if tool in ECHOES_INPUT:
+        decision["updatedInput"] = tool_input
+    return decision
 
 
 def describe(tool: str, tool_input: dict) -> str:
@@ -54,8 +75,7 @@ def main() -> int:
     if session_id and blanket_approval_until(session_id):
         H.emit({"hookSpecificOutput": {
             "hookEventName": "PermissionRequest",
-            "decision": {"behavior": "allow",
-                         "reason": "Covered by an earlier 'all' from Zoho Cliq"}}})
+            "decision": allow_decision(tool, tool_input)}})
         return 0
 
     rid = new_request_id()
@@ -79,29 +99,28 @@ def main() -> int:
                               tool_use_id=payload.get("tool_use_id", ""))
 
     if not reply or reply.get("type") != "verdict":
-        # No answer in time: hand it back to the terminal rather than
-        # guessing. "ask" is the safe default, never deny.
-        H.emit({"hookSpecificOutput": {
-            "hookEventName": "PermissionRequest",
-            "decision": {"behavior": "ask"}}})
+        # Say nothing at all, which is how a hook declines to decide and hands
+        # the call back to the terminal prompt. There is deliberately no
+        # {"behavior": "ask"} here: the union is allow-or-deny, and Claude
+        # Code rejects "ask" with 'PermissionRequest decision must be
+        # {"behavior": "allow"} or {"behavior": "deny", "message": "..."}'.
         return 0
 
     if reply.get("allow"):
-        reason = "Approved from Zoho Cliq"
         if reply.get("scope") == "session" and session_id:
-            until = grant_blanket_approval(session_id, cfg.blanket_approval_seconds)
+            grant_blanket_approval(session_id, cfg.blanket_approval_seconds)
             mins = int(cfg.blanket_approval_seconds // 60)
-            reason = f"Approved from Zoho Cliq; everything in this session for {mins}m"
             # Say plainly what was just granted -- a blanket approval the
             # user has forgotten about is the dangerous kind.
             H.send(relay, kind="ack", request_id=new_request_id(),
                    text=(f"👍 Approving everything in this session for {mins} minutes.\n"
                          f"Run `/claude-cliq:away off` to revoke it immediately."),
                    session_id=session_id, cwd=cwd)
-        decision = {"behavior": "allow", "reason": reason}
+        decision = allow_decision(tool, tool_input)
     else:
-        decision = {"behavior": "deny",
-                    "reason": "Denied from Zoho Cliq"}
+        # `message` is the field name on this branch; `reason` is silently
+        # dropped, which is why every denial used to reach Claude unexplained.
+        decision = {"behavior": "deny", "message": "Denied from Zoho Cliq"}
     H.emit({"hookSpecificOutput": {"hookEventName": "PermissionRequest",
                                    "decision": decision}})
     return 0

@@ -302,10 +302,23 @@ def main() -> int:
                 target = next((w for w in armed if w["request_id"] == bound_id), None)
                 if bound_id and not target:
                     # The id came back but names nothing still waiting --
-                    # usually a swipe-reply to a question already answered.
+                    # a tap on an already-answered message, or one whose window
+                    # has closed. It must NOT fall through to unbound routing:
+                    # a reply that named a specific request and missed is not
+                    # evidence about any other request, and letting it through
+                    # can drop one question's answer into another's waiter.
                     log(f"reply names {bound_id}, which is no longer waiting "
-                        f"(armed: {[w['request_id'] for w in armed]})")
-                elif not bound_id:
+                        f"(armed: {[w['request_id'] for w in armed]}) — dropping")
+                    # Say which of the two it was only as far as we can tell
+                    # -- answered and expired look identical from here -- but
+                    # do point at something actionable if anything is waiting.
+                    more = ("\n\nSwipe-reply the newest message if you meant "
+                            "something else that's still waiting.") if armed else ""
+                    _notify(relay, f"Nothing's waiting on that one any more — "
+                                   f"it was answered, or its window closed.{more}",
+                            kind="ack")
+                    continue
+                if not bound_id:
                     log("reply carried no id (plain message, or the swiped "
                         "message had no id in it)")
 

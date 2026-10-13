@@ -175,6 +175,11 @@ def route(text: str, waiters: list[dict], *, bound: bool = False
     permission: a typed "yes" must never approve a command, because there is
     no way to be sure which request the person meant.
 
+    An `ask` waiter is the mirror image. It is waiting for one of Claude's own
+    options, so "no" is an answer and not a refusal, and "all" is an answer and
+    not a blanket approval. Those words reach the verdict regexes below first,
+    so an ask has to step around them.
+
     Returns (request_id, payload). A (None, None) result means nothing
     matched -- the caller decides what to ask.
     """
@@ -184,6 +189,9 @@ def route(text: str, waiters: list[dict], *, bound: bool = False
         waiters = [w for w in waiters if w.get("kind") != "permission"]
         if not waiters:
             return None, None
+
+    if len(waiters) == 1 and waiters[0].get("kind") == "ask":
+        return waiters[0]["request_id"], {"type": "answer", "text": text.strip()}
 
     m = BLANKET_RE.match(text)
     if m:
