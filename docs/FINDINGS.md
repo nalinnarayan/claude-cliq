@@ -262,6 +262,58 @@ one person's `~/.claude/settings.json` does nothing for anyone else, so
 pairing writes it into each user's own settings and says so. It needs a
 restart to take effect.
 
+## A hook can answer AskUserQuestion itself — but only two tools can
+
+`PermissionRequest`'s decision union is exactly:
+
+```js
+decision: Ue([
+  u({behavior:C("allow"), updatedInput:ue(o(),oe()).optional(),
+     updatedPermissions:A(Lt()).optional()}),
+  u({behavior:C("deny"), message:o().optional(), interrupt:H().optional()})
+])
+```
+
+There is **no `"ask"`**, and no `reason` on either branch. Claude Code says so
+itself on a validation failure: `PermissionRequest decision must be
+{"behavior": "allow"} or {"behavior": "deny", "message": "..."}`.
+
+For a tool that would otherwise show a dialog, an `allow` carrying no
+`updatedInput` is **discarded** — `if(!B.updatedInput &&
+e.requiresUserInteraction?.()) return null` — and the terminal prompt opens
+anyway. The exempt set is `kxr = new Set([mu, Qo])` with `mu="ExitPlanMode"`
+and `Qo="AskUserQuestion"`. Those two, and nothing else, can be answered by a
+hook. `AskUserQuestion.call()` then reads `{answers, annotations}` straight out
+of its own input, which is also exactly what the real dialog returns.
+
+**Measured, not inferred.** A throwaway hook emitting
+
+```json
+{"behavior": "allow",
+ "updatedInput": {"questions": [...], "answers": {"<question text>": "Second option"}}}
+```
+
+produced, with no dialog shown at all:
+
+```
+The user answered: "Mechanism probe 1 of 2 …"="Second option",
+                   "Mechanism probe 2 of 2 …"="A typed answer that is not any listed option"
+```
+
+Three things that settles:
+
+- `answers` is keyed by the **exact question text**, and the value is the
+  option **label**. Confirmed against answered calls in `~/.claude/projects`:
+  multiSelect is one comma-joined string, `"A, B, C"`.
+- A custom answer is just free text in that same slot — it matches no listed
+  label and is accepted regardless. So "Other" needs no special field.
+- Several questions in one call are answered together, in one decision.
+
+Note the framing: Claude Code renders a hook-supplied answer as *"The user
+answered…"*. It is not the user. Anything reading that output has no way to
+tell the difference, which is a good reason never to canned-answer outside a
+probe.
+
 ## Cliq's markdown is not CommonMark
 
 Probed the live bot with one message carrying ten labelled variants.

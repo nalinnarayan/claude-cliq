@@ -1,0 +1,24 @@
+// PROBE -- throwaway, delete once the gate question is settled.
+//
+// Prints back everything the submit handler is handed, because three separate
+// unknowns are answered by one tap:
+//   - does `form.get("values")` carry the radio selection?
+//   - does `form.get("name")` carry the form name? The real feature plans to
+//     ride the request id in there, so if it is absent the binding scheme
+//     needs a different carrier entirely.
+//   - what does a CANCEL deliver? trigger_on_cancel is true, so cancelling
+//     invokes this too, and the docs never show how the two differ.
+//
+// Create in the bot builder as a FORM function named exactly:
+//     claudeCliqProbeSubmit
+
+response = Map();
+try
+{
+	response.put("text", "values = " + form.get("values") + "\nname = " + form.get("name") + "\nkeys = " + form.keys() + "\nwhole = " + form);
+}
+catch (e)
+{
+	response.put("text", "submit handler error: " + e.toString());
+}
+return response;

@@ -1,0 +1,68 @@
+// PROBE -- throwaway, delete once the gate question is settled.
+//
+// Gate test: CAN A BUTTON ON A BOT MESSAGE OPEN A FORM? Zoho's docs list
+// "Clicking a button" as a form trigger, but a Zoho community thread asks
+// exactly this and has no answer, and nothing in this project has ever
+// rendered a Cliq form.
+//
+// It also reports the length of the `spec` argument it was handed, which
+// settles whether a ~3KB button argument survives -- the thing that decides
+// whether the real feature needs server-side storage or not.
+//
+// Create in the bot builder as a BUTTON function named exactly:
+//     claudeCliqProbeForm
+
+spec = arguments.get("spec");
+arglen = 0;
+if(spec != null)
+{
+	arglen = spec.toString().length();
+}
+
+o1 = Map();
+o1.put("label", "Option one");
+o1.put("value", "0");
+o2 = Map();
+o2.put("label", "Option two");
+o2.put("value", "1");
+opts = List();
+opts.add(o1);
+opts.add(o2);
+
+q0 = Map();
+q0.put("type", "radio");
+q0.put("name", "q0");
+q0.put("label", "Probe question");
+q0.put("hint", "spec argument length: " + arglen);
+q0.put("mandatory", true);
+q0.put("options", opts);
+
+q0other = Map();
+q0other.put("type", "text");
+q0other.put("name", "q0_other");
+q0other.put("label", "Other");
+q0other.put("hint", "leave this blank");
+q0other.put("placeholder", "type here");
+q0other.put("mandatory", false);
+
+inputs = List();
+inputs.add(q0);
+inputs.add(q0other);
+
+action = Map();
+action.put("type", "invoke.function");
+action.put("name", "claudeCliqProbeSubmit");
+action.put("mode", "immediate");
+
+// One return at the top level, as everywhere else in this folder.
+form = Map();
+form.put("type", "form");
+form.put("title", "Cliq form probe");
+form.put("name", "askprobe");
+form.put("hint", "gate test for claude-cliq");
+form.put("button_label", "Send");
+form.put("version", 1);
+form.put("trigger_on_cancel", true);
+form.put("action", action);
+form.put("inputs", inputs);
+return form;
