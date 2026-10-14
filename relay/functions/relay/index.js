@@ -143,14 +143,20 @@ app.post('/ds-probe', async (req, res) => {
     // function has no end user. If it fails, the push design is dead.
     if (channelId) {
       await step('tokenPair', async () => {
-        const tp = await streams.tokenPair('probe-' + Date.now());
-        // Never log the key itself.
-        return {
+        const name = String((req.body && req.body.conn) || 'probe-' + Date.now());
+        const tp = await streams.tokenPair(name);
+        const safe = {
           url: tp && tp.url,
           wss_id: tp && (tp.wss_id || tp['wss-id']),
           channel_id: tp && tp.channel_id,
           key_present: Boolean(tp && tp.key),
         };
+        // The key is a credential to RECEIVE broadcasts, so it is withheld
+        // unless explicitly asked for. Gate testing needs a usable ticket;
+        // this whole route is secret-gated, and the flag keeps the key out of
+        // every ordinary diagnostic.
+        if (req.body && req.body.reveal === true) safe.key = tp && tp.key;
+        return safe;
       });
       await step('publish', () => streams.publishWake('probe'));
     }

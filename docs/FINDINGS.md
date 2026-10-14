@@ -283,6 +283,44 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### Ack-gating is per-subscriber, so one stalled laptop stalls only itself
+
+The question that would have sunk a single shared channel. The docs say only
+*"until the acknowledgement is sent, the next message in the stream will not be
+delivered"* and never say whether that is scoped per subscriber or per channel.
+Per channel, one laptop with a half-open socket would wedge the doorbell for
+the whole org.
+
+Measured with two live subscribers on `claude-cliq-wake` — A never acks, B acks
+each, then three wakes published:
+
+```
+A: MESSAGE #1 streamingId=898147301518741393   A: deliberately NOT acking
+B: MESSAGE #1 streamingId=898147301518741393   B: acked
+B: MESSAGE #2 streamingId=898147320103701531   B: acked
+B: MESSAGE #3 streamingId=898147338780937338   B: acked
+
+A (never acks) received 1
+B (acks each)  received 3
+```
+
+**Per-subscriber.** A stopped dead at one message; B was unaffected. Three
+further facts from the same run:
+
+- Both subscribers received the **same `streamingId`** for the first wake, so
+  it is a true broadcast with independent per-subscriber cursors. Reading does
+  not consume a message for anyone else.
+- `subscribe('0')` live mode works, and delivery was effectively instant.
+- **Ack on receipt, never after processing.** A's stall is exactly what
+  happens if an ack is delayed — every later message is withheld. A wake is
+  content-free, so losing one to a crash is recoverable from `Pending`; a
+  stalled cursor is not.
+
+Worth knowing for the gate harness: the vendored JS SDK makes a perfectly good
+throwaway subscriber, so this was answered without writing a line of the
+hand-rolled Python client. Sequencing note — the design-killer should be tested
+before the client that is merely ours to write.
+
 ### Trap 1: the package is real but unpublished
 
 `npm install @zcatalyst/datastreams` returns a 404 from the registry — verified
