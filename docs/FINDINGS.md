@@ -262,6 +262,77 @@ one person's `~/.claude/settings.json` does nothing for anyone else, so
 pairing writes it into each user's own settings and says so. It needs a
 restart to take effect.
 
+## Data Streams works, with three traps on the way in
+
+Measured against the live project, not read from docs. One `POST /ds-probe`
+call, four steps, all green:
+
+```
+ok  load:      vendored package resolved
+ok  channels:  1 channel(s)
+ok  tokenPair: url=in2-dms.zoho.in  wss_id=…  key_present=true
+ok  publish:   true
+```
+
+So the design holds: **an Advanced I/O function with no end-user context can
+mint a subscriber ticket.** That was the single question that could have killed
+it, because the SDK asks for the ticket with `CREDENTIAL_USER.user` while every
+other method uses `.admin`, and the docs say token generation needs admin auth.
+In practice the server-side call is accepted.
+
+Also settled: the datacenter resolves itself. The ticket comes back with
+`url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
+
+### Trap 1: the package is real but unpublished
+
+`npm install @zcatalyst/datastreams` returns a 404 from the registry — verified
+with the actual install command, not just `npm view`. `zcatalyst-sdk-node@3.4.0`
+has no datastreams module, PyPI `zcatalyst-sdk@1.4.0` has none, and Maven's
+`com.zoho.catalyst` group has none either. The source is on GitHub and already
+versioned `1.0.0`.
+
+Rebuild:
+
+```
+npm install github:catalystbyzoho/zcatalyst-sdk-js
+cd node_modules/zcatalyst-sdk-js/packages/datastreams
+# swap "workspace:*" for the PUBLISHED siblings, which do exist on npm
+#   @zcatalyst/utils@^1.0.0  @zcatalyst/transport@^1.0.0  ws@^8.18.0
+npm install typescript@5.4.5 @types/node@20 @types/ws
+tsc -p tsconfig.cjs.json      # needs the monorepo tsconfig*.json one level up
+```
+
+Target is ES2020, so node20 runs it. Only `datastreams` needs vendoring —
+`utils`, `transport`, `auth-admin` and `auth-client` are all published at 1.0.0.
+
+### Trap 2: `new DataStreams()` cannot work, whatever the docs show
+
+The documented usage is `new DataStreams()` with no argument, relying on the
+SDK to "resolve project credentials from the execution environment". It always
+throws `AUTH_ERROR`. `@zcatalyst/auth-admin@1.0.0` guards its env loader with
+
+```js
+if (!isNonEmptyString(!projectId)) return {};
+```
+
+and `!projectId` is a **boolean**, never a string, so `isNonEmptyString` is
+always false, the guard always fires, and `getDefaultCredentials()` always
+finds `{}`. Verified by calling their own validator.
+
+Beyond the inverted condition it is the wrong idea for Advanced I/O anyway:
+`x-zc-projectid` and its siblings arrive as request **headers**, not as process
+env. So the app is initialised per request — `new ZCAuth().init(req)` — exactly
+as the old SDK's `catalyst.initialize(req)` does it.
+
+### Trap 3: a `file:` dependency deploys as a broken symlink
+
+npm symlinks `file:` dependencies into `node_modules` by default, and
+Catalyst's deploy zips the directory without following symlinks. The function
+would have failed with `MODULE_NOT_FOUND` in production while working perfectly
+on the laptop. `install-links=true` in `relay/functions/relay/.npmrc` copies
+instead; the comment there says why, because a future `npm install` would
+otherwise silently undo it.
+
 ## A hook can answer AskUserQuestion itself — but only two tools can
 
 `PermissionRequest`'s decision union is exactly:

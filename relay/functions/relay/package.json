@@ -5,6 +5,8 @@
   "main": "index.js",
   "dependencies": {
     "express": "^4.19.2",
-    "zcatalyst-sdk-node": "^3.4.0"
+    "zcatalyst-sdk-node": "^3.4.0",
+    "@zcatalyst/datastreams": "file:./vendor/zcatalyst-datastreams",
+    "@zcatalyst/auth-admin": "^1.0.0"
   }
 }

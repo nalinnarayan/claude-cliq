@@ -15,6 +15,7 @@ const { createRelay } = require('./core');
 const { createStore } = require('./store-datastore');
 const { createCliq } = require('./cliq');
 const { runSelftest } = require('./selftest');
+const { createStreams } = require('./streams');
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -35,6 +36,9 @@ function relayFor(req) {
     // Optional for the function's creator, required for everyone else.
     fnOwner: process.env.CLIQ_FUNCTION_OWNER || '',
     debugUsers: (process.env.DEBUG_USERS || '').split(',').map((s) => s.trim()).filter(Boolean),
+    // Built per request like everything else -- Data Streams needs an app
+    // initialised from the request headers, not from process env.
+    streams: createStreams({ req, channelId: process.env.DS_CHANNEL_ID || '' }),
   });
 }
 
@@ -94,6 +98,65 @@ app.post('/selftest', async (req, res) => {
     res.status(200).json(await runSelftest(catalyst.initialize(req)));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /ds-probe -- the Data Streams gate, in one call.
+ *
+ * Reports each step separately rather than failing on the first, because the
+ * interesting outcomes are "the SDK loaded but Catalyst refused" and "channels
+ * list but a ticket will not mint" -- and those mean completely different
+ * things for the design.
+ *
+ * Pass {"channel_id": "..."} to override DS_CHANNEL_ID before it is deployed.
+ */
+app.post('/ds-probe', async (req, res) => {
+  const out = { steps: {} };
+  const step = async (name, fn) => {
+    try {
+      out.steps[name] = { ok: true, result: await fn() };
+    } catch (err) {
+      out.steps[name] = {
+        ok: false,
+        error: err && err.message ? err.message : String(err),
+        code: err && err.code ? err.code : undefined,
+        status: err && err.status ? err.status : undefined,
+      };
+    }
+  };
+  try {
+    requireSecret(req);
+    const channelId = String((req.body && req.body.channel_id) || process.env.DS_CHANNEL_ID || '');
+    const streams = createStreams({ req, channelId });
+    out.channel_id = channelId || '(unset)';
+
+    // G0: does the vendored SDK load, initialise and reach Catalyst at all?
+    await step('load', async () => {
+      require('@zcatalyst/datastreams');
+      return 'vendored package resolved';
+    });
+    await step('channels', () => streams.channels());
+
+    // G1: can a server-side function mint a subscriber ticket? The docs say
+    // this needs admin auth; the SDK asks with CREDENTIAL_USER.user, and this
+    // function has no end user. If it fails, the push design is dead.
+    if (channelId) {
+      await step('tokenPair', async () => {
+        const tp = await streams.tokenPair('probe-' + Date.now());
+        // Never log the key itself.
+        return {
+          url: tp && tp.url,
+          wss_id: tp && (tp.wss_id || tp['wss-id']),
+          channel_id: tp && tp.channel_id,
+          key_present: Boolean(tp && tp.key),
+        };
+      });
+      await step('publish', () => streams.publishWake('probe'));
+    }
+    res.status(200).json(out);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'error', ...out });
   }
 });
 

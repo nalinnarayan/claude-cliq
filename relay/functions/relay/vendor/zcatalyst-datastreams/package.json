@@ -1,0 +1,74 @@
+{
+  "name": "@zcatalyst/datastreams",
+  "version": "1.0.0",
+  "description": "Catalyst DataStreams service client for managing real-time data channels",
+  "main": "dist-cjs/index.js",
+  "module": "dist-es/index.js",
+  "types": "dist-types/index.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./dist-types/index.d.ts",
+        "import": "./dist-es/index.js",
+        "require": "./dist-cjs/index.js"
+      },
+      "browser": {
+        "types": "./dist-types/index.browser.d.ts",
+        "import": "./dist-es/index.browser.js",
+        "require": "./dist-cjs/index.browser.js"
+      },
+      "default": {
+        "types": "./dist-types/index.d.ts",
+        "import": "./dist-es/index.js",
+        "require": "./dist-cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist-cjs/",
+    "dist-es/",
+    "dist-types/",
+    "src/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENCE"
+  ],
+  "keywords": [
+    "catalyst",
+    "datastreams",
+    "real-time",
+    "websocket",
+    "channels",
+    "zoho",
+    "sdk"
+  ],
+  "browser": {
+    "./dist-cjs/index.js": "./dist-cjs/index.browser.js",
+    "./dist-es/index.js": "./dist-es/index.browser.js",
+    "./dist-types/index.d.ts": "./dist-types/index.browser.d.ts",
+    "stream": false,
+    "crypto": false,
+    "fs": false,
+    "path": false,
+    "process": false
+  },
+  "author": "Zoho Corporation",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/catalystbyzoho/zcatalyst-sdk-js.git",
+    "directory": "packages/datastreams"
+  },
+  "bugs": {
+    "url": "https://github.com/catalystbyzoho/zcatalyst-sdk-js/issues"
+  },
+  "homepage": "https://github.com/catalystbyzoho/zcatalyst-sdk-js/tree/main/packages/datastreams#readme",
+  "dependencies": {
+    "@zcatalyst/utils": "^1.0.0",
+    "@zcatalyst/transport": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
