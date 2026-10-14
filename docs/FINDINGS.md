@@ -283,6 +283,37 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### The ticket is the security boundary; channel access control is not
+
+Measured, not assumed. `/ds-access` was made to refuse any `connectionName`
+beginning with `deny-`, a ticket was minted for exactly such a name, and the
+connection was **accepted anyway**:
+
+```
+POST /            {"connectionName":"deny-gate4"}  ->  403 {"approved":false}
+connect with that ticket                           ->  OPEN, accepted
+```
+
+Mounted at `/ds-access` and again at `POST /`, since Catalyst invokes the
+*function* for access control and has no way to know about a sub-path. Both
+refused; the connection still opened. So the channel's access control is not
+calling this relay.
+
+The channel reports `control_type: 1` with `control_ids: 64689000000056913` —
+one numeric id, which is a **User Roles** configuration (the dialog's default
+radio), not Custom Logic. Worth noting what this does *not* prove: whether a
+Custom Logic channel would fail open or closed is still unknown, because this
+channel never invoked anything.
+
+What it does prove, and it is the thing that matters:
+
+**A connection cannot be made without a token pair, and token pairs are minted
+only by the relay with admin credentials after a valid device token is
+presented.** Access control adds nothing observable on top. So `/ds-access`
+must not be described, or relied on, as a gate — it is a shape check at a path
+nothing currently calls. Note also that minting is *not* gated by access
+control: a ticket was issued for `deny-gate4` without complaint.
+
 ### Ack-gating is per-subscriber, so one stalled laptop stalls only itself
 
 The question that would have sunk a single shared channel. The docs say only

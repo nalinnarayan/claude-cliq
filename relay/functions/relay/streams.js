@@ -78,6 +78,11 @@ function createStreams({ req, channelId }) {
     async channels() {
       return sdk().getAllChannels();
     },
+
+    /** Diagnostic: what access control a channel actually has configured. */
+    async details(id) {
+      return sdk().getChannelDetails(String(id));
+    },
   };
 }
 

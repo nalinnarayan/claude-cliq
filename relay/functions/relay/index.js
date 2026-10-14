@@ -137,6 +137,7 @@ app.post('/ds-probe', async (req, res) => {
       return 'vendored package resolved';
     });
     await step('channels', () => streams.channels());
+    if (channelId) await step('details', () => streams.details(channelId));
 
     // G1: can a server-side function mint a subscriber ticket? The docs say
     // this needs admin auth; the SDK asks with CREDENTIAL_USER.user, and this
@@ -165,6 +166,42 @@ app.post('/ds-probe', async (req, res) => {
     res.status(err.status || 500).json({ error: err.message || 'error', ...out });
   }
 });
+
+/**
+ * POST /ds-access -- Data Streams "Custom Logic" access control.
+ *
+ * Called by Catalyst when a subscriber tries to connect, with
+ * {userId, connectionName} in the body. 200 {approved:true} lets them in,
+ * 403 {approved:false, reason} keeps them out.
+ *
+ * Be honest about what this is: **it is not the security boundary.** A
+ * subscriber cannot connect without a token pair, token pairs are minted only
+ * by /stream-ticket after a valid device token is presented, and minting needs
+ * a credential no client holds. This handler exists because the console
+ * requires one to be named, and because a shape check is cheap. It
+ * deliberately does no Data Store lookup -- a read here would put a billed
+ * query on every reconnect, and it would buy nothing the ticket did not
+ * already prove.
+ */
+function dsAccess(req, res) {
+  const connectionName = String((req.body && req.body.connectionName) || '');
+  const userId = String((req.body && req.body.userId) || '');
+  // Logged so the gate test can tell "approved" from "never called at all",
+  // which are the two outcomes that look identical from the client side.
+  console.log('ds-access called', JSON.stringify({ connectionName, userId }));
+  const ok = /^[A-Za-z0-9_.:-]{3,64}$/.test(connectionName) || /^[0-9]{3,32}$/.test(userId);
+  if (!ok) {
+    return res.status(403).json({ approved: false, reason: 'Unauthorized' });
+  }
+  return res.status(200).json({ approved: true });
+}
+
+// Mounted at BOTH paths on purpose. Catalyst invokes the FUNCTION for access
+// control, which arrives at the express root -- it has no way to know about a
+// sub-path. /ds-access stays as the self-documenting name and for direct
+// testing.
+app.post('/ds-access', dsAccess);
+app.post('/', dsAccess);
 
 app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
 
