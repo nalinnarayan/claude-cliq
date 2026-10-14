@@ -283,6 +283,51 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### A stdlib Python subscriber works; two details are not in any doc
+
+`scripts/wake.py` is ~260 lines of RFC 6455 against the protocol recovered from
+the built SDK. Measured against the live channel:
+
+```
+connecting…
+wake: subscribed            <- 101 + Sec-WebSocket-Accept verified, then mtype=0
+WAKE #1: {'w': 'probe'}
+WAKE #2: {'w': 'probe'}
+listen() returned 'done' after 2 wake(s)
+```
+
+The **second** wake is the real proof: delivery is sequential per subscriber,
+so it only arrives if the ack for the first was accepted.
+
+**Every control payload but the ack carries `type: "con"`.**
+
+```js
+subscribePayload   = { type: 'con', value: 'subscribe', streamingId: '' }
+serverPingPayload  = { type: 'con', value: 'ping' }
+unsubscribePayload = { type: 'con', value: 'unsubscribe' }
+ackPayload         = { type: 'ack', streamingId: '' }   // no 'con'
+```
+
+Easy to miss by grepping for `value:` and assuming the rest of the struct.
+
+**`SESSION_EXPIRED` (-11) can be transient on a brand-new connection name, and
+it is a liar.** Two first-connect attempts were refused with -11, both with
+freshly minted tickets — once before the `type: "con"` fix and once after. The
+*same* ticket then connected fine seconds later, both from the JS SDK and from
+this client. So the fix is right by reference to the SDK but was **not** shown
+to be the cure.
+
+The consequence for the product: -11 must be **retried once with a fresh
+ticket** rather than failing the wait. Its wording sends you hunting for a
+stale credential, which is the wrong place entirely — the handshake, the
+Accept header and the subscribe payload were all correct at the time.
+
+A useful shape for diagnosing this: connect **without** subscribing first. The
+server answers immediately with a session frame (`uid`, `rsid`, `sid`, `xa`,
+`zuid`), which separates "the connection was refused" from "the subscribe was
+refused" — two failures that look identical from a client that does both at
+once.
+
 ### The ticket is the security boundary; channel access control is not
 
 Measured, not assumed. `/ds-access` was made to refuse any `connectionName`
