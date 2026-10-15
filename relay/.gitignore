@@ -1,6 +1,12 @@
 node_modules/
 iac/dist/
-.env.deploy
 *.bak
 .catalystrc
 .catalystrc.*
+# Every environment's secrets, not just production's. The glob matters:
+# .env.deploy.test was created outside this rule and would have been
+# committed with a live relay secret in it.
+.env.deploy*
+!.env.deploy.example
+# Project bindings name an account and org, and switch per environment.
+.catalystrc*

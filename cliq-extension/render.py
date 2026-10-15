@@ -40,7 +40,7 @@ def relay_base() -> str:
     # no clue why. There is nothing in .catalystrc that names the DC, so it
     # comes from the env file, defaulting to the DC this project has used
     # since the start.
-    tld = read_env().get("CATALYST_TLD", "in")
+    tld = read_env().get("RELAY_TLD", "in")
     return f"https://{domain}.catalystserverless.{tld}/server/relay"
 
 
