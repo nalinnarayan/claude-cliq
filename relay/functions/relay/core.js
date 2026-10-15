@@ -97,8 +97,33 @@ function buildButtons(requestId, answers, { fnName, fnOwner }) {
 }
 
 function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now,
-                       fnName = 'claudeCliqAction', fnOwner = '' }) {
+                       fnName = 'claudeCliqAction', fnOwner = '',
+                       streams = null, streamSecret = '' }) {
   const debug = new Set(debugUsers.map((u) => String(u).toLowerCase()));
+
+  /**
+   * The opaque label the doorbell rings for one Cliq account.
+   *
+   * Per ACCOUNT, not per device, because the mailbox is per account:
+   * listPending/deletePending are keyed on cliq_user and a fetch drains
+   * everything that account has queued. A per-device label would also need a
+   * device-listing query that does not exist, one read per inbound reply, and
+   * N publishes -- and it would still race, since the fetch is not
+   * device-scoped.
+   *
+   * Derived rather than stored, so there is no column to add, no UPDATE per
+   * rotation (the UPDATE tier is a tenth of the read tier), and nothing to
+   * migrate for devices that are already paired.
+   *
+   * Everyone subscribed to the channel sees every label. All it tells someone
+   * who does not own it is that *an* account had activity, and when. Nothing
+   * identifying may ever be put alongside it.
+   */
+  function wakeIdFor(cliqUser) {
+    if (!streamSecret) return '';
+    return crypto.createHmac('sha256', streamSecret)
+      .update(`wake|${cliqUser}`).digest('hex').slice(0, 32);
+  }
 
   const storesBody = (user) => debug.has(String(user || '').toLowerCase());
 
@@ -286,7 +311,57 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         // message is deleted the moment it is delivered.
         retain: storesBody(cliqUser),
       });
+
+      // Ring the doorbell. Deliberately after the insert and deliberately
+      // non-fatal: the reply is already safely filed, and a laptop covers a
+      // missed bell with one cheap fetch when it next starts waiting. Failing
+      // the inbound here would make Cliq think delivery failed when it did
+      // not -- and Cliq does not redeliver.
+      const wake = wakeIdFor(cliqUser);
+      if (streams && streams.configured && wake) {
+        try {
+          await streams.publishWake(wake);
+        } catch (err) {
+          console.error('wake publish failed (reply is still queued)', err && err.message);
+        }
+      }
       return { ok: true };
+    },
+
+    /**
+     * POST /stream-ticket -- what a laptop needs to hear its own doorbell.
+     *
+     * The ticket is the real security boundary in this design: a subscriber
+     * cannot connect without one, and only this route mints them, only for a
+     * device presenting a valid device token. Channel access control adds
+     * nothing on top -- measured, see docs/FINDINGS.md.
+     */
+    async streamTicket({ headers }) {
+      const device = await requireDevice(store, headers);
+      if (!streams || !streams.configured) {
+        throw new HttpError(503, 'no Data Streams channel configured');
+      }
+      // Derived from the token hash so it is stable per device and reveals
+      // nothing: the hash is already one-way, and this is one more step from
+      // it. Used only to name the connection, never to authorise anything.
+      //
+      // TWENTY characters, measured: Data Streams rejects a longer
+      // connection_name with "Please check if the length of the input is in
+      // the correct range", which names neither the field nor the limit. 21
+      // fails, 20 passes. 80 bits of SHA-256 is ample to keep devices apart.
+      const conn = sha256(`conn|${device.token_hash}`).slice(0, 20);
+      const tp = await streams.tokenPair(conn);
+      return {
+        url: tp && tp.url,
+        key: tp && tp.key,
+        wss_id: tp && (tp.wss_id || tp['wss-id']),
+        // From our own config, not from the response: the docs list
+        // channel_id as a token-pair field and the live API does not return
+        // it. The laptop only logs this, but a silent undefined is the kind
+        // of thing that gets debugged twice.
+        channel_id: streams.channelId,
+        wake_id: wakeIdFor(device.cliq_user),
+      };
     },
   };
 }

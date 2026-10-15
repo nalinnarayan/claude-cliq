@@ -60,8 +60,19 @@ MT_SERVER_DOWN = "670"
 _FATAL = {
     MT_MISSING_KEY: "the ticket carried no key",
     MT_AUTH_FAILED: "Data Streams rejected the ticket",
-    MT_SESSION_EXPIRED: "the subscriber session has expired; mint a new ticket",
     MT_BLOCKED: "this connection is blocked by Zoho; contact support",
+}
+
+# Say "reconnect", not "give up" -- whatever their wording suggests.
+#
+# SESSION_EXPIRED is the liar here. It fires on the FIRST connect with a
+# brand-new connection name, with a ticket minted seconds earlier, and the
+# very same ticket then works on the next attempt. Taking it at its word sends
+# you hunting for a stale credential while the real answer is "try again".
+_RETRYABLE = {
+    MT_SESSION_EXPIRED: "session not ready yet",
+    MT_SERVER_DOWN: "Data Streams reported a server error",
+    MT_SWITCH_URL: "the server asked us to move host",
 }
 
 PING_EVERY = 15.0           # a literal "-" frame
@@ -69,7 +80,15 @@ SERVER_PING_EVERY = 60.0    # {"value":"ping"}
 
 
 class WakeError(Exception):
-    """Anything that makes the socket unusable."""
+    """Anything that makes the socket unusable.
+
+    `retryable` means reconnecting is likely to work; the caller should not
+    surface it to a human on the first occurrence.
+    """
+
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class _Conn:
@@ -236,15 +255,41 @@ def connect(ticket: dict, *, streaming_id: str = "0", timeout: float = 20.0) -> 
 
 
 def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
-           streaming_id: str = "0") -> str | None:
-    """Watch for wakes until `deadline`.
+           streaming_id: str = "0", renew=None, attempts: int = 4) -> str | None:
+    """Watch for wakes until `deadline`, reconnecting when told to.
 
     Calls `on_wake(payload_dict)` for every data event. If it returns a truthy
     value, that value is returned from here and the socket is closed -- which
     is how a blocked hook stops as soon as its own wake arrives.
 
+    `renew()` should return a fresh ticket; it is called before a retry when
+    supplied, because a host switch changes the url.
+
     Returns None on timeout.
     """
+    delay = 1.0
+    for attempt in range(1, attempts + 1):
+        if time.time() >= deadline:
+            return None
+        try:
+            return _listen_once(ticket, deadline=deadline, on_wake=on_wake,
+                                log=log, streaming_id=streaming_id)
+        except WakeError as exc:
+            if not exc.retryable or attempt == attempts:
+                raise
+            log(f"wake: {exc} — reconnecting ({attempt}/{attempts - 1})")
+            time.sleep(min(delay, max(0.0, deadline - time.time())))
+            delay *= 2
+            if renew:
+                try:
+                    ticket = renew()
+                except Exception as err:          # a failed renew is not fatal
+                    log(f"wake: could not renew the ticket: {err}")
+    return None
+
+
+def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
+                 streaming_id: str) -> str | None:
     conn = connect(ticket, streaming_id=streaming_id)
     last_ping = last_server_ping = time.time()
     try:
@@ -283,16 +328,11 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
             mtype = str(events[0].get("mtype", ""))
             if mtype in _FATAL:
                 raise WakeError(_FATAL[mtype])
+            if mtype in _RETRYABLE:
+                raise WakeError(_RETRYABLE[mtype], retryable=True)
             if mtype == MT_AUTH_SUCCESS:
                 log("wake: subscribed")
                 continue
-            if mtype == MT_SWITCH_URL:
-                # The server is moving us. Treated as fatal here so the caller
-                # re-tickets and reconnects, rather than this module growing a
-                # second connection path.
-                raise WakeError("server asked us to switch host; reconnect")
-            if mtype == MT_SERVER_DOWN:
-                raise WakeError("Data Streams reported a server error; retry shortly")
             if mtype != MT_DATA_EVENT:
                 log(f"wake: ignoring message type {mtype}")
                 continue

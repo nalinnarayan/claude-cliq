@@ -39,6 +39,9 @@ function relayFor(req) {
     // Built per request like everything else -- Data Streams needs an app
     // initialised from the request headers, not from process env.
     streams: createStreams({ req, channelId: process.env.DS_CHANNEL_ID || '' }),
+    // Derives each account's wake label. Not a credential a client ever
+    // holds -- it only has to be stable and secret to the relay.
+    streamSecret: process.env.RELAY_STREAM_SECRET || '',
   });
 }
 
@@ -66,6 +69,7 @@ app.post('/unpair', route((r, req) => r.unpair({ headers: req.headers })));
 app.post('/notify', route((r, req) => r.notify({ headers: req.headers, body: req.body })));
 app.post('/peek',   route((r, req) => r.peek({ headers: req.headers })));
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
+app.post('/stream-ticket', route((r, req) => r.streamTicket({ headers: req.headers })));
 
 // -- Cliq-facing -----------------------------------------------------------
 app.post('/cliq-action', route((r, req) =>

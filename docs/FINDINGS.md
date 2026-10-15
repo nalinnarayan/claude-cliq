@@ -311,6 +311,55 @@ nothing in this repo records whether `message_details` exposes one — only that
 *replied to*. Worth probing with a debug handler before claiming it can be
 done.
 
+### The doorbell works, and two more limits are undocumented
+
+First full cycle, on the test environment:
+
+```
+15:58:50 wake: subscribed
+16:00:17 MY WAKE -> fetching
+16:00:21 COLLECTED: 'Hi'    (request_id=none)
+16:00:21 COLLECTED: 'Hello' (request_id=none)
+```
+
+A typed reply reached `/cliq-inbound`, which filed it and rang the bell; the
+subscriber recognised its own label, fetched **once**, and drained the
+account's queue. **Two SELECTs for the whole cycle**, against 5,760 a day for
+the polling it replaces. The queue read 0 afterwards, so delete-on-delivery
+works.
+
+Note what came back: the earlier `'Hi'`, stranded from a previous round with
+nothing listening, was collected alongside the new reply. That is the
+"replied while nothing was listening" case solving itself for free — and it is
+also the **stale-reply hazard** in action. A reply from twenty minutes earlier
+was handed back as current. With one armed waiter, `waiter.route()` would have
+delivered it as the answer to a brand-new question. The age guard is not
+optional.
+
+**`connection_name` is capped at 20 characters.** Measured: 21, 22, 23, 24 and
+32 are all refused with
+
+```
+Please check if the length of the input is in the correct range
+```
+
+which names neither the field nor the limit. 20 passes. The SDK's own
+`isValidInputString` only checks the charset `[a-zA-Z0-9-_]+`, so this is
+server-side and nothing warns you.
+
+**The token-pair response does not include `channel_id`**, though the docs
+list it among the fields. Only `url`, `key` and `wss_id` come back. The relay
+fills it from its own config rather than passing `undefined` down to the
+laptop.
+
+**`SESSION_EXPIRED` on a first connect is confirmed transient.** It fired again
+on the very first use of the derived connection name, with a ticket seconds
+old, and connected first try on the next attempt. `wake.listen()` now treats
+`SESSION_EXPIRED`, `SERVER_DOWN` and `SWITCH_URL` as *reconnect*, with backoff
+and optional ticket renewal, while `AUTH_FAILED`, `MISSING_KEY` and `BLOCKED`
+stay fatal. Without that, every laptop's first connection would fail with a
+message pointing at entirely the wrong problem.
+
 ### A stdlib Python subscriber works; two details are not in any doc
 
 `scripts/wake.py` is ~260 lines of RFC 6455 against the protocol recovered from

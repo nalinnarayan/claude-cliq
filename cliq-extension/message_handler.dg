@@ -6,6 +6,7 @@
 //   message_details.message.text              typed text
 //   message_details.message.comment           caption, when a file is attached
 //   message_details.message.replied_message   the message a swipe-reply answers
+//   message_details.message.id                this message's own id, if present
 //
 // `replied_message.text` is what binds a reply to its request: outbound
 // messages carry "(id xxxxx)", so the id comes back and no one types it.
@@ -38,6 +39,30 @@ try
 	}
 	body = body.toString();
 
+	// The relay keys inbound rows on this to make a double-fired handler
+	// idempotent. It had never been sent, so the relay fell back to a random
+	// UUID on every delivery and the idempotency was decorative -- a handler
+	// retry would have delivered the same reply twice.
+	//
+	// Nothing documents where the incoming message's own id lives, so the
+	// plausible places are tried in order. An empty string is fine: the relay
+	// falls back to a UUID exactly as before, so this can only improve on
+	// what was there.
+	msgId = "";
+	mid = md.get("id");
+	if(mid == null)
+	{
+		mid = message_details.get("id");
+	}
+	if(mid == null)
+	{
+		mid = message_details.get("message_id");
+	}
+	if(mid != null)
+	{
+		msgId = mid.toString();
+	}
+
 	repliedText = "";
 	replied = md.get("replied_message");
 	if(replied != null)
@@ -59,6 +84,7 @@ try
 		payload.put("cliq_user", user.get("id"));
 		payload.put("text", body);
 		payload.put("replied_text", repliedText);
+		payload.put("message_id", msgId);
 
 		headers = Map();
 		headers.put("Content-Type", "application/json");
