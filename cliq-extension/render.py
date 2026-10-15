@@ -15,7 +15,7 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-ENVFILE = HERE.parent / "relay" / ".env.deploy"
+ENVFILE = HERE.parent / "relay" / ".env.deploy"   # overridden by --env
 RCFILE = HERE.parent / "relay" / ".catalystrc"
 OUT = HERE / "generated"
 
@@ -49,7 +49,18 @@ def main() -> int:
     ap.add_argument("--repo", default="<your-marketplace-repo>",
                     help="what teammates pass to `claude plugin marketplace add`")
     ap.add_argument("--relay", default=None, help="override the relay base URL")
+    ap.add_argument("--env", default=None,
+                    help="environment suffix, e.g. `test` for .env.deploy.test")
     args = ap.parse_args()
+
+    if args.env:
+        # Rebound before anything reads it: relay_base() also pulls RELAY_TLD
+        # out of the same file, so both must come from the same environment.
+        global ENVFILE
+        ENVFILE = HERE.parent / "relay" / f".env.deploy.{args.env}"
+        if not ENVFILE.exists():
+            print(f"no such env file: {ENVFILE}", file=sys.stderr)
+            return 1
 
     env = read_env()
     secret = env.get("RELAY_INBOUND_SECRET", "")
@@ -61,12 +72,18 @@ def main() -> int:
     OUT.mkdir(exist_ok=True)
     (OUT / ".gitignore").write_text("*\n")
 
+    fn_name = env.get("CLIQ_FUNCTION_NAME", "claudeCliqAction")
     sources = sorted(f.name for f in HERE.glob("*.dg") if "debug" not in f.name)
     for name in sources:
         text = (HERE / name).read_text()
         text = (text.replace("REPLACE_WITH_RELAY_INBOUND_SECRET", secret)
                     .replace("REPLACE_WITH_RELAY_BASE", base)
+                    .replace("REPLACE_WITH_FUNCTION_NAME", fn_name)
                     .replace("REPLACE_WITH_REPO", args.repo))
+        # The bot function is written out under the name it must be CREATED
+        # with, so there is no way to paste it into the wrong one.
+        if name == "claudeCliqAction.dg":
+            name = f"{fn_name}.dg"
         if "REPLACE_WITH_" in text:
             leftover = [l.strip() for l in text.splitlines() if "REPLACE_WITH_" in l]
             print(f"! {name} still has placeholders: {leftover}", file=sys.stderr)

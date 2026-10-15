@@ -7,7 +7,12 @@
 //
 // Create this in the bot builder as a function named exactly (Cliq
 // function names allow letters only -- no underscores):
-//     claudeCliqAction
+//     REPLACE_WITH_FUNCTION_NAME
+//
+// The name is per ENVIRONMENT, not per bot. Cliq functions are account-level,
+// so every bot in the account sees the same list -- which means a test bot
+// reusing the production function would post button taps to the production
+// relay, with the production secret. Hence CLIQ_FUNCTION_NAME.
 
 payload = Map();
 payload.put("cliq_user", user.get("id"));
