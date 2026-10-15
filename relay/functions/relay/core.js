@@ -30,8 +30,6 @@ const POLL_TICK_MS = Number(process.env.POLL_TICK_MS || 3000);
 const MAX_TEXT = 4500;                      // Cliq caps a message at 5000
 
 // Cliq's own ceiling is 50/min for bot messages, and it is shared across
-// every user because we post under one token-owner identity. Leave headroom.
-const SEND_BUDGET_PER_MIN = 40;
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
@@ -127,12 +125,6 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
 
   const storesBody = (user) => debug.has(String(user || '').toLowerCase());
 
-  async function withinSendBudget() {
-    const bucket = `send:${Math.floor(now() / 60000)}`;
-    const used = await store.bumpCounter(bucket, 120);
-    return used <= SEND_BUDGET_PER_MIN;
-  }
-
   return {
     /** Issue a pairing code. Called by the bot's welcome handler. */
     async issuePairCode({ cliqUser, email }) {
@@ -181,12 +173,19 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       const text = String(body.text || '').slice(0, MAX_TEXT);
       if (!text) throw new HttpError(400, 'text required');
 
-      if (!(await withinSendBudget())) {
-        // Breaching Cliq's limit costs a 10-minute lockout for everyone, so
-        // shed the message rather than risk it.
-        throw new HttpError(429, 'send budget exhausted; try again shortly');
-      }
-
+      // A per-send counter used to sit here guarding Cliq's shared 50/min.
+      // It cost a SELECT and an UPDATE on EVERY message -- and the UPDATE
+      // free tier is 1,000/month against 10,000 for reads, so two writes per
+      // notification blew the write tier on their own, before any polling.
+      // There is nowhere cheap to move it: Catalyst's Cache has no atomic
+      // increment, and get+put there lands on a 1,000/month GET tier, which
+      // is worse still.
+      //
+      // So it is gone, and the gap is written down rather than approximated.
+      // A breach now surfaces as Cliq's own 429, which cliq.dm detects and
+      // raises. Pacing is enforced per laptop instead, which bounds the
+      // realistic failure -- one runaway machine -- but NOT the real scaling
+      // risk of fifty people active at once. See docs/FINDINGS.md.
       const hint = String(body.hint || '').slice(0, 300);
       const composed = hint ? `${text}\n\n_${hint}_` : text;
 
@@ -202,14 +201,11 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       }
       await cliq.dm(device.email, prose || '(see below)', extras);
 
-      if (body.session_id) {
-        await store.putSession(device.cliq_user, {
-          session_id: String(body.session_id),
-          cwd: String(body.cwd || ''),
-          request_id: String(body.request_id || ''),
-          ts: now(),
-        });
-      }
+      // The Sessions row that used to be written here is gone with the
+      // daemon. It was a SELECT plus an UPDATE on every notification and
+      // nothing ever read it back: its only consumer was the daemon's
+      // handle_unmatched, deciding whether a reply with nothing waiting
+      // belonged to a live session. A blocked hook knows that for itself.
       return { ok: true, request_id: body.request_id || null };
     },
 
@@ -368,4 +364,4 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
 
 module.exports = { createRelay, buildButtons, HttpError, sha256, newToken, newPairCode,
                    DEVICE_HEADER,
-                   timingSafeEqual, SEND_BUDGET_PER_MIN, MAX_WAIT_S };
+                   timingSafeEqual, MAX_WAIT_S };

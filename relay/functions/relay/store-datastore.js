@@ -113,30 +113,8 @@ function createStore(app) {
     },
 
     // -- last-notified session, for the late-reply path -------------------
-    async putSession(cliqUser, s) {
-      const table = ds.table('Sessions');
-      const existing = await first(
-        `SELECT ROWID FROM Sessions WHERE cliq_user = ${lit(cliqUser)}`, 'Sessions');
-      const payload = {
-        cliq_user: cliqUser, session_id: s.session_id,
-        cwd: s.cwd, request_id: s.request_id, ts: s.ts,
-      };
-      if (existing) await table.updateRow({ ROWID: existing.ROWID, ...payload });
-      else await table.insertRow(payload);
-    },
 
     // -- send budget ------------------------------------------------------
-    async bumpCounter(bucket) {
-      const table = ds.table('Counters');
-      const cur = await first(
-        `SELECT ROWID, n FROM Counters WHERE bucket = ${lit(bucket)}`, 'Counters');
-      const n = (Number(cur?.n) || 0) + 1;
-      // A read-modify-write can undercount under concurrency, which is
-      // exactly why the budget is 40 against Cliq's real ceiling of 50.
-      if (cur) await table.updateRow({ ROWID: cur.ROWID, n });
-      else await table.insertRow({ bucket, n });
-      return n;
-    },
   };
 }
 

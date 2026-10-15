@@ -311,6 +311,55 @@ nothing in this repo records whether `message_details` exposes one — only that
 *replied to*. Worth probing with a debug handler before claiming it can be
 done.
 
+### Two writes per notification had already blown the write tier
+
+Separate from polling, and found while reviewing rather than from a failure.
+Catalyst's free tiers are not uniform:
+
+| | free per month |
+| --- | --- |
+| SELECT | 10,000 |
+| INSERT | 5,000 |
+| **UPDATE** | **1,000** |
+| DELETE | 1,000 |
+
+Every outbound notification performed **two** UPDATEs, each preceded by its
+own SELECT:
+
+```js
+putSession:  SELECT ROWID FROM Sessions  ... → updateRow
+bumpCounter: SELECT ROWID, n FROM Counters ... → updateRow
+```
+
+At twenty notifications a day that is ~1,200 UPDATEs a month against an
+allowance of 1,000 — breached on its own, before a single poll. Fixing only
+the polling would have hit this a few weeks later.
+
+Both are now gone, for different reasons.
+
+**`putSession` had no reader.** Its only consumer was the daemon's
+`handle_unmatched`, deciding whether a reply with nothing waiting belonged to
+a live session. A blocked hook knows that about itself, so the table went with
+the daemon.
+
+**The send counter had nowhere cheap to go.** It guarded Cliq's shared 50/min,
+which is worth guarding — breaching it locks out the whole org for ten
+minutes. But Catalyst offers no cheap counter: **Cache has no atomic
+increment** (only get/put/update/delete), and a get+put there lands on a
+**1,000/month GET tier**, worse than the Data Store. So it is removed rather
+than approximated, and the gap is stated instead:
+
+- a breach now surfaces as Cliq's own 429, which `cliq.dm` already detects;
+- pacing is enforced **per laptop** (`local_sends_per_min`, a small local
+  file, free), which bounds one runaway machine;
+- it does **not** bound fifty people active at once. That is a capacity
+  problem needing per-user pacing or a queue, and pretending a miscounted
+  40/min budget covered it was worse than admitting it does not.
+
+Tables went from five to three: `Devices`, `PairCodes`, `Pending`. `Sessions`
+and `Counters` can be dropped from the console at leisure; nothing reads or
+writes them.
+
 ### A ticket cannot be renewed while its session is alive
 
 ```

@@ -20,12 +20,10 @@ from pathlib import Path
 STATE_DIR = Path(os.environ.get("CLAUDE_CLIQ_HOME", Path.home() / ".claude" / "cliq"))
 CONFIG_PATH = STATE_DIR / "config.json"
 AWAY_PATH = STATE_DIR / "away"
-SESSIONS_DIR = STATE_DIR / "sessions"
 WAITERS_DIR = STATE_DIR / "waiters"
 INBOX_PATH = STATE_DIR / "inbox.jsonl"
 APPROVALS_DIR = STATE_DIR / "approvals"
 STREAKS_DIR = STATE_DIR / "streaks"
-DAEMON_LOCK = STATE_DIR / "cliqd.lock"
 LOG_PATH = STATE_DIR / "cliq.log"
 
 # Claude Code's own convention for human-typeable ids: five lowercase
@@ -90,6 +88,12 @@ class Config:
     transport: str = "stream"
     # Seconds between fetches in poll mode.
     poll_fallback_seconds: float = 20.0
+    # Most messages this laptop will send in one minute. Cliq's real ceiling
+    # is 50/min shared across the WHOLE org, which no single machine can see;
+    # this only bounds a runaway local loop, which is the failure that has
+    # actually happened. Enforced here because the relay-side counter cost two
+    # Data Store writes per message and there is nowhere cheap to put it.
+    local_sends_per_min: int = 20
     # A reply older than this is refused rather than delivered. Without the
     # daemon a row can sit in the relay for its whole 24h TTL, and route()
     # with one armed waiter would hand a reply typed hours ago to a brand-new
@@ -232,6 +236,36 @@ def ensure_block_cap() -> str | None:
         return f"couldn't write {SETTINGS_PATH}: {exc}"
     was = f" (was {current})" if current else ""
     return f"Set {key}={BLOCK_CAP} in {SETTINGS_PATH}{was} — restart Claude Code for it to apply."
+
+
+PACE_PATH = STATE_DIR / "pace.json"
+
+
+def send_allowed(limit_per_min: int) -> bool:
+    """Local send pacing. Free: one small file, no network, no Data Store.
+
+    Deliberately NOT protection for Cliq's shared 50/min -- a laptop cannot
+    see what fifty colleagues are doing. It stops one machine from emptying
+    the allowance by itself, and nothing more. Fails OPEN: a pacing file that
+    cannot be read must never be the reason a notification is lost.
+    """
+    minute = int(time.time() // 60)
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            data = json.loads(PACE_PATH.read_text())
+        except Exception:
+            data = {}
+        used = int(data.get("n", 0)) if data.get("minute") == minute else 0
+        if used >= limit_per_min:
+            return False
+        tmp = PACE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"minute": minute, "n": used + 1}))
+        tmp.replace(PACE_PATH)
+        return True
+    except Exception as exc:
+        log(f"pacing check failed, allowing the send: {exc}")
+        return True
 
 
 def is_away() -> bool:

@@ -50,27 +50,6 @@ _Replies waiting to be collected by a long-poll. The hot path -- rows are delete
 | `retain` | boolean | no size field | — | True only for debug-allowlisted users |
 | `request_id` | varchar | Max Length **16** | — | Set when the user swipe-replied: binds the reply to that request |
 
-## Sessions
-
-_The last session each user was notified about, so a reply nothing is waiting for can name where that work is._
-
-| Column | Data Type | Size | Toggles | Why |
-| --- | --- | --- | --- | --- |
-| `cliq_user` | varchar | Max Length **64** | **Mandatory**, **Unique** |  |
-| `session_id` | varchar | Max Length **64** | **Mandatory** |  |
-| `cwd` | text | no size field | — | Working directory; Text not varchar because a truncated path would be shown to the user |
-| `request_id` | varchar | Max Length **16** | — |  |
-| `ts` | bigint | no size field | — | Epoch MILLISECONDS. bigint not double: Catalyst's double normalises a 10-digit epoch away |
-
-## Counters
-
-_Per-minute send budget, guarding Cliq's shared 50/min ceiling._
-
-| Column | Data Type | Size | Toggles | Why |
-| --- | --- | --- | --- | --- |
-| `bucket` | varchar | Max Length **64** | **Mandatory**, **Unique** | e.g. send:29193847 |
-| `n` | int | no size field | **Mandatory** |  |
-
 ## Two things that are easy to get wrong
 
 **`cliq_user` appears in four tables with different flags.** It is Unique

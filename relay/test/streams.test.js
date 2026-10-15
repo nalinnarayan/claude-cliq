@@ -20,8 +20,6 @@ function memStore() {
       return [...pending.values()].filter((m) => m.cliq_user === u && m.ts > since);
     },
     async deletePending(rows) { for (const r of rows) pending.delete(r.id); },
-    async putSession() {},
-    async bumpCounter(b) { const n = (counters.get(b) || 0) + 1; counters.set(b, n); return n; },
     _pending: pending,
   };
 }

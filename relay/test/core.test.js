@@ -23,7 +23,6 @@ function memStore() {
     },
     async deletePending(rows) { rows.forEach((r) => pending.delete(r.id)); },
     async putSession(user, s) { sessions.set(user, s); },
-    async bumpCounter(k) { const n = (counters.get(k) || 0) + 1; counters.set(k, n); return n; },
   };
 }
 
@@ -128,15 +127,22 @@ test('inbound is idempotent on message id', async () => {
   assert.strictEqual(h.store._pending.size, 1);
 });
 
-test('send budget protects the shared Cliq rate limit', async () => {
+test('a notification writes nothing to the store', async () => {
+  // It used to write twice -- a Sessions upsert and a send counter -- and
+  // the UPDATE free tier is a tenth of the read tier, so two writes per
+  // message blew it on their own. Pacing moved to the laptop; the Sessions
+  // row had no reader once the daemon went.
   const h = harness();
   const tok = await pairUser(h, 'u1', 'alice@z.com');
-  for (let i = 0; i < 40; i++) {
+  let writes = 0;
+  for (const m of ['putSession', 'bumpCounter', 'putPending']) {
+    h.store[m] = async () => { writes += 1; };
+  }
+  for (let i = 0; i < 50; i++) {
     await h.relay.notify({ headers: bearer(tok), body: { text: `m${i}` } });
   }
-  await assert.rejects(
-    () => h.relay.notify({ headers: bearer(tok), body: { text: 'one too many' } }),
-    /send budget/);
+  assert.strictEqual(writes, 0, 'no writes, however many messages');
+  assert.strictEqual(h.sent.length, 50, 'and nothing is shed relay-side');
 });
 
 test('bodies are retained only for the debug allowlist', async () => {

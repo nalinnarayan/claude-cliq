@@ -1,9 +1,10 @@
-"""Waiter registry: how a blocked hook and the machine's single daemon meet.
+"""Waiter registry: how a blocked hook and the machine's fetch leader meet.
 
 A hook that wants an answer arms a waiter file and then watches that file.
-The daemon holds the one long-poll for the whole machine and writes answers
-into waiter files. Hooks never talk to the relay while waiting, which is
-what keeps N concurrent sessions down to one in-flight relay request.
+Exactly one blocked hook per machine -- the fetch leader, elected in
+collect.py -- holds the Data Streams connection, fetches, and writes answers
+into these files. Everyone else just watches their own. That keeps N
+concurrent sessions down to one socket and one read per reply.
 """
 
 from __future__ import annotations
@@ -11,12 +12,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
 
-from cliqlib import DAEMON_LOCK, SESSIONS_DIR, WAITERS_DIR, log
+from cliqlib import WAITERS_DIR, log
 
 # "yes abcde" / "no abcde" -- a permission verdict.
 VERDICT_RE = re.compile(r"^\s*(y|yes|ok|approve|n|no|deny|reject)\b[\s:,]*([a-z]{5})?\s*$", re.I)
@@ -132,24 +132,17 @@ def _owner_alive(data: dict) -> bool:
         return False
 
 
-def wait(request_id: str, deadline: float, tick: float = 0.2,
-         revive_every: float = 10.0) -> dict | None:
-    """Block until the daemon resolves this waiter, or the deadline passes.
+def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
+    """Block until this waiter is resolved, or the deadline passes.
 
-    Also keeps the daemon alive. Arming once and hoping is not enough: the
-    daemon can exit mid-wait -- killed, or standing down after a code change
-    -- and then nothing collects the reply. The symptom is a reply that
-    reaches Cliq and simply never arrives, which is indistinguishable from
-    the bridge being broken.
+    Used by a hook that is NOT the machine's fetch leader: the leader does the
+    collecting and resolves this file. There is nothing to keep alive any
+    more -- the leader is itself a blocked hook, so it cannot vanish without
+    the thing it serves vanishing too, and leadership passing is handled in
+    collect.wait_for() rather than here.
     """
     p = _path(request_id)
-    next_check = 0.0
     while time.time() < deadline:
-        if time.time() >= next_check:
-            next_check = time.time() + revive_every
-            if not _daemon_alive():
-                log("daemon not running while waiting — restarting it")
-                ensure_daemon()
         try:
             data = json.loads(p.read_text())
         except FileNotFoundError:
@@ -236,69 +229,3 @@ def route(text: str, waiters: list[dict], *, bound: bool = False
         return waiters[0]["request_id"], {"type": "answer", "text": text.strip()}
 
     return None, None
-
-
-def ensure_daemon() -> None:
-    """Start the machine's daemon if it isn't already holding the lock."""
-    if _daemon_alive():
-        return
-    script = Path(__file__).with_name("cliqd.py")
-    try:
-        subprocess.Popen(
-            [sys.executable, str(script)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except Exception as exc:
-        log(f"could not start daemon: {exc}")
-
-
-def _daemon_alive() -> bool:
-    import fcntl
-    if not DAEMON_LOCK.exists():
-        return False
-    try:
-        with DAEMON_LOCK.open("r+") as fh:
-            try:
-                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return True          # someone holds it: daemon is up
-            fcntl.flock(fh, fcntl.LOCK_UN)
-            return False
-    except Exception:
-        return False
-
-
-# -- session liveness -------------------------------------------------------
-
-def register_session(session_id: str, cwd: str) -> None:
-    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    (SESSIONS_DIR / f"{session_id}.json").write_text(json.dumps({
-        "session_id": session_id, "cwd": cwd,
-        "pid": os.getppid(), "started": time.time(),
-    }))
-
-
-def unregister_session(session_id: str) -> None:
-    (SESSIONS_DIR / f"{session_id}.json").unlink(missing_ok=True)
-
-
-def session_live(session_id: str) -> bool:
-    """True if that session still has a running process.
-
-    Tells a reply worth holding (the session is alive, so a `Stop` hook is
-    coming) from one worth answering with "carry on at the terminal".
-    """
-    p = SESSIONS_DIR / f"{session_id}.json"
-    try:
-        pid = json.loads(p.read_text())["pid"]
-    except Exception:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        p.unlink(missing_ok=True)
-        return False

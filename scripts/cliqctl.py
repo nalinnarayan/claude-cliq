@@ -75,11 +75,6 @@ def cmd_away(args) -> int:
     if on:
         print("Away mode on — Claude will ping you in Cliq and wait for a "
               "reply before finishing.")
-        # Start it now rather than waiting for the next hook: the user may
-        # walk away before one fires, and then nothing collects their reply.
-        import waiter
-        waiter.ensure_daemon()
-
         # Said up front, because the alternative is learning it from a reply
         # that goes nowhere.
         print(f"\nIt waits {load_config().wait_seconds // 60} minutes at a "

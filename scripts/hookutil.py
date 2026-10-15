@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
 from cliqlib import (Config, Relay, RelayError, is_away, load_config, log,
+                     send_allowed,
                      new_request_id)
 
 MAX_SUMMARY = 1400          # Cliq caps a message at 5000 chars; stay well under
@@ -94,6 +95,11 @@ def context_line(cwd: str) -> str:
 def send(relay: Relay, *, kind: str, text: str, request_id: str,
          session_id: str = "", cwd: str = "", expects_reply: bool = False,
          hint: str = "", answers: list[dict] | None = None) -> bool:
+    if not send_allowed(cfg_cache().local_sends_per_min):
+        # Shed rather than queue. A notification that arrives minutes late is
+        # worse than none: the thing it was about has already moved on.
+        log(f"{kind} notify shed: this machine has hit its own per-minute pace")
+        return False
     try:
         relay.notify(kind=kind, text=text, request_id=request_id,
                      session_id=session_id, cwd=cwd,
@@ -102,6 +108,18 @@ def send(relay: Relay, *, kind: str, text: str, request_id: str,
     except RelayError as exc:
         log(f"{kind} notify failed: {exc}")
         return False
+
+
+_CFG: Config | None = None
+
+
+def cfg_cache() -> Config:
+    """send() predates taking a Config, and threading one through every call
+    site for a pacing limit is not worth the churn."""
+    global _CFG
+    if _CFG is None:
+        _CFG = load_config()
+    return _CFG
 
 
 def relay_for(cfg: Config) -> Relay:

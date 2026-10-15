@@ -47,21 +47,6 @@ const PROBES = [
       return true;
     },
   },
-  {
-    table: 'Sessions',
-    row: () => ({
-      cliq_user: `selftest-${Date.now()}`, session_id: 'abc-123',
-      cwd: '/tmp', request_id: 'abcde', ts: Date.now(),
-    }),
-    key: 'cliq_user',
-    check: (got, sent) => got.session_id === sent.session_id,
-  },
-  {
-    table: 'Counters',
-    row: () => ({ bucket: `selftest:${Date.now()}`, n: 7 }),
-    key: 'bucket',
-    check: (got) => Number(got.n) === 7,
-  },
 ];
 
 function lit(v) { return `'${String(v).replace(/'/g, "''")}'`; }
