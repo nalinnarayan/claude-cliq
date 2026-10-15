@@ -283,6 +283,34 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### The inbound idempotency key is never sent
+
+`core.inbound` reads
+
+```js
+// Cliq does not redeliver, but a handler may fire twice on a retry of
+// its own; keying on the Cliq message id makes this idempotent.
+const id = String(body.message_id || crypto.randomUUID());
+```
+
+but `message_handler.dg` only ever sends `cliq_user`, `text` and
+`replied_text`. So the fallback fires every time, `msg_id` is a fresh UUID on
+every delivery, and **the documented idempotency does not exist** — a handler
+firing twice inserts two rows and the reply is delivered twice.
+
+Caught by noticing a queued row's id was a UUID rather than a Cliq id:
+
+```
+queued: 1
+  id=55ef2165-1196-4750-8964-675d0a32d031  request_id=(none)  text='Hi'
+```
+
+Unfixed. The handler would need to pass the incoming message's own id, and
+nothing in this repo records whether `message_details` exposes one — only that
+`message_details.message.replied_message` carries the id of the message being
+*replied to*. Worth probing with a debug handler before claiming it can be
+done.
+
 ### A stdlib Python subscriber works; two details are not in any doc
 
 `scripts/wake.py` is ~260 lines of RFC 6455 against the protocol recovered from
