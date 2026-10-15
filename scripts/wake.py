@@ -262,8 +262,11 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
     value, that value is returned from here and the socket is closed -- which
     is how a blocked hook stops as soon as its own wake arrives.
 
-    `renew()` should return a fresh ticket; it is called before a retry when
-    supplied, because a host switch changes the url.
+    `renew()` may return a fresh ticket, but note that re-minting for a
+    connection name whose session is still alive is REFUSED ("Duplicate value
+    for connection_name") -- close() keeps the session on purpose. Retrying
+    with the same ticket is what works for the transient SESSION_EXPIRED, so
+    callers normally pass nothing.
 
     Returns None on timeout.
     """

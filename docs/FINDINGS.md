@@ -311,6 +311,30 @@ nothing in this repo records whether `message_details` exposes one — only that
 *replied to*. Worth probing with a debug handler before claiming it can be
 done.
 
+### A ticket cannot be renewed while its session is alive
+
+```
+wake: session not ready yet — reconnecting (1/3)
+wake: could not renew the ticket: HTTP 500:
+      {"error":"Duplicate value for connection_name. Please give a different value"}
+wake: subscribed
+```
+
+Re-minting a ticket for a `connection_name` whose subscriber session still
+exists is refused. And `close()` **preserves** that session on purpose — that
+is exactly what makes `-2` resume possible — so after a disconnect the name is
+still taken and renewal can only fail.
+
+Retrying with the **same** ticket is what works, which is what the transient
+`SESSION_EXPIRED` wanted anyway. The renewal path is removed rather than left
+in place to fail quietly; it survived the first live run only because a failed
+renew was non-fatal.
+
+Consequence for anything built later: a per-device `connection_name` is a
+*lease*, not a label. Two live connections cannot share one, so a second
+concurrent subscriber on the same device would need a different name — and the
+name is capped at 20 characters.
+
 ### The doorbell works, and two more limits are undocumented
 
 First full cycle, on the test environment:

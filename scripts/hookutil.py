@@ -16,7 +16,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import cliqd
 import waiter
 from cliqlib import (Config, Relay, RelayError, is_away, load_config, log,
                      new_request_id)
@@ -99,23 +98,37 @@ def send(relay: Relay, *, kind: str, text: str, request_id: str,
         relay.notify(kind=kind, text=text, request_id=request_id,
                      session_id=session_id, cwd=cwd,
                      expects_reply=expects_reply, hint=hint, answers=answers)
-        if session_id:
-            cliqd.note_notified(session_id, cwd)
         return True
     except RelayError as exc:
         log(f"{kind} notify failed: {exc}")
         return False
 
 
+def relay_for(cfg: Config) -> Relay:
+    return Relay(cfg)
+
+
 def block_for_reply(cfg: Config, request_id: str, *, session_id: str,
                     kind: str, cwd: str, tool_use_id: str = "") -> dict | None:
-    """Arm a waiter and hold this session until the daemon answers it."""
+    """Arm a waiter and hold this session until the reply arrives.
+
+    The ONE place that knows which transport is live. Everything downstream --
+    waiting on the file, routing, resolving, the spool -- is shared, so the
+    half that differs is "what wakes the collector" and nothing else.
+    """
     window = cfg.permission_wait_seconds if kind == "permission" else cfg.wait_seconds
     deadline = time.time() + window
     waiter.arm(request_id, session_id=session_id, kind=kind, cwd=cwd,
                expires_at=deadline, tool_use_id=tool_use_id)
-    waiter.ensure_daemon()
-    return waiter.wait(request_id, deadline=deadline)
+    try:
+        import collect
+        return collect.wait_for(cfg, relay_for(cfg), request_id, deadline)
+    except Exception as exc:
+        # A hook that raises here takes the whole turn down. Releasing the
+        # session to the terminal is always better than that.
+        log(f"collect failed, releasing to the terminal: {exc}")
+        waiter.disarm(request_id)
+        return None
 
 
 def emit(obj: dict) -> None:

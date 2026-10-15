@@ -78,6 +78,23 @@ class Config:
     max_block_streak: int = 100
     # One long-poll leg. Catalyst caps a function at 30s, so stay under it.
     poll_seconds: int = 25
+    # How a laptop learns a reply has arrived.
+    #
+    #   stream -- subscribe to the Data Streams doorbell and fetch when it
+    #             rings. One read per reply.
+    #   poll   -- ask the relay repeatedly. The same collector doing the same
+    #             routing; only the trigger differs. Kept as an escape hatch
+    #             against a surprise bill or a proxy that blocks wss://, and
+    #             overridable by CLAUDE_CLIQ_TRANSPORT so flipping it does not
+    #             itself require a working stream.
+    transport: str = "stream"
+    # Seconds between fetches in poll mode.
+    poll_fallback_seconds: float = 20.0
+    # A reply older than this is refused rather than delivered. Without the
+    # daemon a row can sit in the relay for its whole 24h TTL, and route()
+    # with one armed waiter would hand a reply typed hours ago to a brand-new
+    # question. Observed on the first end-to-end run.
+    stale_after_seconds: int = 1800
     enabled: bool = True
 
     @property
@@ -100,6 +117,10 @@ def load_config() -> Config:
     cfg.device_token = os.environ.get("CLAUDE_CLIQ_TOKEN", cfg.device_token)
     if os.environ.get("CLAUDE_CLIQ_DISABLE"):
         cfg.enabled = False
+    cfg.transport = os.environ.get("CLAUDE_CLIQ_TRANSPORT", cfg.transport).strip().lower()
+    if cfg.transport not in ("stream", "poll"):
+        log(f"unknown transport {cfg.transport!r}; falling back to poll")
+        cfg.transport = "poll"
     return cfg
 
 
@@ -306,13 +327,30 @@ class Relay:
         }, timeout=20)
 
     # -- inbound ---------------------------------------------------------
-    def poll(self, since: float, wait: int | None = None) -> dict:
-        """One long-poll leg. Returns {'messages': [...], 'now': <epoch>}."""
+    def stream_ticket(self) -> dict:
+        """What this device needs to hear its own doorbell.
+
+        Returns {url, key, wss_id, channel_id, wake_id}. The key is a
+        credential to RECEIVE broadcasts and nothing else -- it cannot read
+        anybody's mailbox, including this device's.
+        """
+        return self._request("/stream-ticket", {}, timeout=30)
+
+    def poll(self, since: float, wait: int | None = None,
+             timeout: int | None = None) -> dict:
+        """One fetch. Returns {'messages': [...], 'now': <epoch>}.
+
+        `wait` is how long the SERVER holds the request; `timeout` is how long
+        this socket will wait for it. They are separate because a wait=0 fetch
+        still needs a sane socket budget -- deriving one from the other gave a
+        non-blocking fetch ten seconds, which a Catalyst cold start can
+        exceed, and the hook then released the session to the terminal.
+        """
         wait = self.cfg.poll_seconds if wait is None else wait
-        # Give the socket a little more than the server's own hold time so a
-        # clean empty response beats a client-side abort.
+        # A little more than the server's own hold time, so a clean empty
+        # response beats a client-side abort.
         return self._request("/await", {"since": since, "wait": wait},
-                             timeout=wait + 10)
+                             timeout=timeout if timeout is not None else wait + 10)
 
 
 def backoff_sleep(attempt: int, base: float = 1.0, cap: float = 30.0) -> None:

@@ -166,6 +166,17 @@ def wait(request_id: str, deadline: float, tick: float = 0.2,
     return None
 
 
+def armed(request_id: str) -> bool:
+    """Is this waiter still waiting?
+
+    Tells "my window lapsed" from "someone disarmed me" -- `wait()` returns
+    None for both, and the caller must stop in the second case. A waiter file
+    vanishes when the tool settles at the terminal (on_settled.py) or when it
+    is resolved.
+    """
+    return _path(request_id).exists()
+
+
 def route(text: str, waiters: list[dict], *, bound: bool = False
           ) -> tuple[str | None, dict | None]:
     """Decide which armed waiter a Cliq reply belongs to.
