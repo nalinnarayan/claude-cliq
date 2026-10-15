@@ -33,9 +33,14 @@ def read_env() -> dict:
 def relay_base() -> str:
     rc = json.loads(RCFILE.read_text())
     domain = rc["projects"][0]["domain"]["name"]
-    # The CLI records e.g. <project>-<org-id>.development; the
-    # data-centre suffix follows from where the project lives.
-    tld = "in" if domain.endswith(".development") and "zoho" not in domain else "in"
+    # The CLI records e.g. <project>-<org-id>.development. The
+    # data-centre suffix does NOT follow from the domain -- both branches of
+    # the ternary that used to live here returned "in", so a project outside
+    # the India DC rendered a wrong URL silently and the handlers failed with
+    # no clue why. There is nothing in .catalystrc that names the DC, so it
+    # comes from the env file, defaulting to the DC this project has used
+    # since the start.
+    tld = read_env().get("CATALYST_TLD", "in")
     return f"https://{domain}.catalystserverless.{tld}/server/relay"
 
 

@@ -1,16 +1,39 @@
 #!/usr/bin/env bash
-# Deploy the relay, injecting secrets from an untracked .env.deploy.
+# Deploy the relay, injecting secrets from an untracked env file.
+#
+#   ./deploy.sh                  -> .env.deploy        (production)
+#   ./deploy.sh test             -> .env.deploy.test   (test environment)
 #
 # Catalyst reads env vars out of catalyst-config.json, which is committed, so
 # secrets are merged in just before the deploy and stripped straight after.
 # The trap means an interrupted deploy still leaves the file clean.
+#
+# Which PROJECT this lands in comes from `catalyst project:use`, not from here
+# -- so switch the project first, or the test secrets go to production. The
+# banner below prints the active project for exactly that reason.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 CONFIG=functions/relay/catalyst-config.json
-ENVFILE=.env.deploy
+SUFFIX="${1:-}"
+ENVFILE=".env.deploy${SUFFIX:+.$SUFFIX}"
 
 [ -f "$ENVFILE" ] || { echo "missing $ENVFILE (see .env.deploy.example)"; exit 1; }
+
+# Deploying test secrets into the production project is the one mistake here
+# that is both easy and expensive, so say where this is going.
+ACTIVE=$(python3 - <<'RC'
+import json, pathlib
+try:
+    rc = json.loads(pathlib.Path(".catalystrc").read_text())
+    pr = rc["projects"][0]
+    print(f'{pr["name"]} ({pr["id"]})')
+except Exception:
+    print("unknown — run `catalyst project:use`")
+RC
+)
+echo "env file : $ENVFILE"
+echo "project  : $ACTIVE"
 
 cp "$CONFIG" "$CONFIG.bak"
 restore() { mv "$CONFIG.bak" "$CONFIG"; }
