@@ -138,6 +138,11 @@ def _notify(relay: Relay, text: str, kind: str = "ack", *,
 def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
     """A plain reply with several sessions waiting: ask, never guess.
 
+    `armed` must be only the sessions the held text could legitimately answer
+    -- which excludes permissions, since those are decided with the Allow/Deny
+    buttons on their own message and never by typed text. Offering one here
+    would invite a tap that cannot mean what it looks like.
+
     One button per waiting session, each carrying THAT session's request id --
     which is what makes a tap unambiguous by construction rather than by
     inference. The typed text stays in the spool, so answering costs one tap
@@ -164,12 +169,11 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         while label in seen:                 # two sessions, one name
             label = f"{base[:18]}·{len(seen)}"
         seen.add(label)
-        kind = "permission" if w.get("kind") == "permission" else "question"
         answers.append({"label": label, "value": "pick", "req": w["request_id"]})
         # Twenty characters truncates most titles, so the full one goes here
         # along with what that session is actually waiting about.
         topic = " ".join((w.get("topic") or "").split())[:110]
-        head = f"- *{title or where}*" + (f" ({where})" if title else "") + f" — {kind}"
+        head = f"- *{title or where}*" + (f" ({where})" if title else "")
         lines.append(head + (f"\n  _{topic}_" if topic else ""))
     more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
     body = "\n".join(lines)
@@ -261,8 +265,11 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             # Nothing matched. With one waiter that cannot happen, so this is
             # the several-sessions case: ask rather than guess, and mark the
             # reply so it can never drift onto a later question.
-            if not bound_id and len(armed) > 1 and not item.get("asked"):
-                _ask_which(relay, item, armed)
+            # The same set route() considered: a typed reply cannot answer a
+            # permission, so a permission must not appear as an option.
+            candidates = [w for w in armed if w.get("kind") != "permission"]
+            if not bound_id and len(candidates) > 1 and not item.get("asked"):
+                _ask_which(relay, item, candidates)
             continue
         log(f"collect: routed to {rid}: {payload.get('type')}")
         taken.append(item["id"])

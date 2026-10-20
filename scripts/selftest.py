@@ -268,8 +268,9 @@ class Chooser(unittest.TestCase):
         # is 22 -- which cost a chooser in production.
         for a in ask[0]["answers"]:
             self.assertLessEqual(len(a["label"]), 20, a["label"])
-        # What each session wants belongs in the text, where there is room.
-        self.assertIn("question", ask[0]["text"])
+        # No "— question" on every line: it distinguishes nothing, because a
+        # permission can never be one of these options.
+        self.assertNotIn("question", ask[0]["text"])
         # Each button names its own session: that is what makes a tap
         # unambiguous by construction rather than by inference.
         self.assertEqual(sorted(a["req"] for a in ask[0]["answers"]),
@@ -335,6 +336,21 @@ class Chooser(unittest.TestCase):
         text = relay.sent[0]["text"]
         self.assertIn("cut the video at 4K", text)
         self.assertIn("deploy the relay", text)
+
+    def test_a_permission_is_never_offered_as_an_option(self):
+        # A typed reply cannot approve anything -- route() filters permissions
+        # out before deciding -- so offering one as a button would invite a tap
+        # that cannot mean what it appears to. With one question and one
+        # permission there is no ambiguity at all, and the text just routes.
+        self.arm("ccccc", "/x/a")
+        waiter.arm("ddddd", session_id="s", kind="permission", cwd="/x/b",
+                   expires_at=time.time() + 60)
+        relay = FakeRelay([[row("1", "go ahead")]])
+        got = collect._drain(self.cfg, relay, "ccccc")
+        self.assertEqual(got["text"], "go ahead", "routed to the only candidate")
+        self.assertEqual([m for m in relay.sent if m.get("kind") == "choose"], [],
+                         "and nothing was asked")
+        self.assertTrue(waiter.armed("ddddd"), "the permission still waits")
 
     def test_a_rejected_chooser_is_asked_again_not_remembered_as_asked(self):
         # The second half of the same production failure: the send was
