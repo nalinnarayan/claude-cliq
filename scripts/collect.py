@@ -135,6 +135,19 @@ def _notify(relay: Relay, text: str, kind: str = "ack", *,
         return False
 
 
+def _plain(text: str | None) -> str:
+    """Flatten a preview to one line of unformatted text.
+
+    A topic is whatever Claude last said, markdown and all. Dropped into an
+    italic preview it nests emphasis inside emphasis, which renders as
+    stray asterisks -- so the markers come out and the lines come together.
+    """
+    flat = " ".join((text or "").split())
+    for mark in ("***", "**", "*", "__", "_", "`"):
+        flat = flat.replace(mark, "")
+    return flat
+
+
 def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
     """A plain reply with several sessions waiting: ask, never guess.
 
@@ -181,14 +194,18 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         answers.append({"label": label, "value": "pick", "req": w["request_id"]})
         # Twenty characters truncates most titles, so the full one goes here
         # along with what that session is actually waiting about.
-        topic = " ".join((w.get("topic") or "").split())[:110]
+        #
+        # Indented with EM SPACES, not ordinary ones: Cliq collapses leading
+        # whitespace in a continuation line, so spaces or a tab simply vanish
+        # and the question runs flush against the name above it.
+        topic = _plain(w.get("topic"))[:110]
         head = f"- *{title or where}*" + (f" ({where})" if title else "")
-        lines.append(head + (f"\n  _{topic}_" if topic else ""))
+        lines.append(head + (f"\n\u2003\u2003_{topic}_" if topic else ""))
     more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
     body = "\n".join(lines)
     sent = _notify(relay,
                    f"Which one is this for?\n\n{body}{more}\n\n"
-                   f"_{item['text'][:160]}_",
+                   f"_{_plain(item['text'])[:160]}_",
                    kind="choose", answers=answers,
                    hint="tap one — I've kept what you typed")
     if not sent:

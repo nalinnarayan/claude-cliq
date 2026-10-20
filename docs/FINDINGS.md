@@ -524,6 +524,25 @@ Which one is this for?
   _Cut the video at 4K or 1080p?_
 ```
 
+### How many buttons show depends on the CLIENT, not the message
+
+Two probes, one with two single-character labels and one with two full
+20-character labels, both sent to the same person:
+
+- **Cliq mobile app** — both buttons visible, in every variant
+- **the Cliq bar** (the strip across the bottom of Zoho web apps) — one
+  button, the rest behind an overflow, in every variant
+
+So it is the client's width, not our label length or button count. Shortening
+labels does not help and numbering them would not either.
+
+Left alone deliberately. What it does mean for anyone extending this: **the
+message text must stand on its own**, because a reader on the Cliq bar sees
+one button and a menu. The chooser already lists every session in the body
+with its name and pending question, so the overflow is navigable rather than
+mysterious — that property is now load-bearing and should not be traded away
+for a terser message.
+
 ### Cliq button labels cap at 20 characters, and a rejected send looked asked
 
 The chooser's first real run produced nothing, and the log said why:
