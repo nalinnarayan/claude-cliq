@@ -163,7 +163,16 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         # home directory it is useless ("nalin-20844"), which is what made the
         # buttons unrecognisable.
         where = (w.get("cwd") or "").rstrip("/").split("/")[-1] or "session"
+        # Captured when the waiter was armed, but looked up again if it is
+        # missing. Two reasons that happens: a session blocked since before
+        # this feature existed, and -- the lasting one -- a BRAND-NEW session,
+        # which has no ai-title until Claude Code gets round to writing one.
+        # A waiter armed in that moment would otherwise show a folder name
+        # for as long as it waits.
         title = " ".join((w.get("title") or "").split())
+        if not title:
+            title = " ".join(waiter.session_title(
+                w.get("session_id", ""), w.get("cwd", "")).split())
         base = title or where
         label = base[:20]
         while label in seen:                 # two sessions, one name

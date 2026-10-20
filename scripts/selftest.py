@@ -322,6 +322,25 @@ class Chooser(unittest.TestCase):
         # Truncated on the button, whole in the text.
         self.assertIn("replace-polling-with-data-streams", relay.sent[0]["text"])
 
+    def test_a_title_that_appears_after_arming_is_still_found(self):
+        # A brand-new session has no ai-title until Claude Code writes one, so
+        # a waiter armed in that moment captures nothing. Without a second
+        # look it would show a folder name for as long as it waits -- which is
+        # exactly what happened to a session armed before this feature landed.
+        import waiter as _w
+        self.arm("aaaaa", "/x/proj-a")          # no title captured
+        self.arm("bbbbb", "/x/proj-b")
+        original = _w.session_title
+        _w.session_title = lambda sid, cwd: {"/x/proj-a": "late title here"}.get(cwd, "")
+        try:
+            relay = FakeRelay([[row("1", "yes")]])
+            collect._drain(self.cfg, relay, "zzzzz")
+        finally:
+            _w.session_title = original
+        labels = sorted(a["label"] for a in relay.sent[0]["answers"])
+        self.assertEqual(labels, ["late title here", "proj-b"],
+                         "found on the second look, folder as fallback")
+
     def test_the_chooser_names_what_each_session_is_waiting_about(self):
         # A hook is given a session_id (a UUID), a cwd and the last message --
         # never a session name, because Claude Code does not expose one. The

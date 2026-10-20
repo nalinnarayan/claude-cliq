@@ -402,6 +402,33 @@ The held reply is now dropped the moment it is consumed, not with the rest at
 the end. There is a test that fires two taps in one fetch and asserts exactly
 one session was served.
 
+### A title captured at arm time can be captured too early
+
+Reported as *"still not seeing the session names"* after the titles landed.
+The lookup was fine; the timing was not.
+
+```
+moqvy  armed 14:26  title=<FIELD ABSENT>
+       lookup now -> 'assured-phase-1-video-loop'
+```
+
+That waiter was armed twelve minutes before the feature existed, so it had no
+title and the chooser fell back to its folder — `nalin-20844`, which names
+nothing. Looking it up at that moment returned the right answer immediately.
+
+The migration case is trivial, but it exposes a permanent one: **a brand-new
+session has no `ai-title` until Claude Code writes one.** A waiter armed in
+that window captures nothing and, since a long-blocked session keeps the same
+waiter, would show a folder name for the whole thirty minutes.
+
+So the title is now looked up again at chooser time whenever the waiter has
+none. Cheap, because a chooser is rare, and it closes both cases.
+
+The general shape is worth noticing: **a value cached at the earliest possible
+moment is a value cached before it exists.** Arm time was chosen to keep the
+collector off the expensive path, which was right — but "captured once" needed
+to mean "captured once *successfully*".
+
 ### A session's name is in its transcript, where /resume reads it
 
 First answer was "a hook is given a UUID, a cwd and the last message, so there
