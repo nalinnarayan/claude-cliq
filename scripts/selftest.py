@@ -478,34 +478,64 @@ class SessionTitle(unittest.TestCase):
 
 
 class AwayMode(unittest.TestCase):
-    """Two states, and off means off."""
+    """Three states: off, notify, on."""
 
     def setUp(self):
         clean()
 
-    def run_stop_hook(self, away):
-        """Run on_stop.py the way Claude Code does, and report what it did."""
-        import subprocess, json as _j
-        from cliqlib import set_away
-        set_away(away)
-        payload = _j.dumps({"session_id": "t", "cwd": "/tmp/x",
-                            "last_assistant_message": "an answer",
-                            "stop_hook_active": False})
-        env = dict(os.environ)
-        r = subprocess.run([sys.executable, str(pathlib.Path(__file__).parent / "on_stop.py")],
-                           input=payload, capture_output=True, text=True, env=env, timeout=20)
-        return r
+    def tearDown(self):
+        from cliqlib import set_mode
+        set_mode("off")
+
+    def test_each_mode_answers_the_two_questions_hooks_ask(self):
+        # Every hook needs one of two thresholds: "should Cliq hear about
+        # this at all" and "should the session wait".
+        from cliqlib import set_mode, mode, is_away, notifies
+        for m, says, waits in (("off", False, False),
+                               ("notify", True, False),
+                               ("on", True, True)):
+            set_mode(m)
+            self.assertEqual(mode(), m)
+            self.assertEqual(notifies(), says, f"{m}: notifies")
+            self.assertEqual(is_away(), waits, f"{m}: waits")
 
     def test_off_sends_nothing_and_returns_at_once(self):
         # Away mode used to gate only the BLOCKING and notify regardless, so
         # "off" still filled someone's Cliq with pings they had asked to stop.
-        r = self.run_stop_hook(False)
+        import subprocess, json as _j
+        from cliqlib import set_mode
+        set_mode("off")
+        r = subprocess.run(
+            [sys.executable, str(pathlib.Path(__file__).parent / "on_stop.py")],
+            input=_j.dumps({"session_id": "t", "cwd": "/tmp/x",
+                            "last_assistant_message": "an answer",
+                            "stop_hook_active": False}),
+            capture_output=True, text=True, env=dict(os.environ), timeout=20)
         self.assertEqual(r.returncode, 0)
         self.assertEqual(r.stdout.strip(), "", "no decision, and nothing sent")
 
-    def tearDown(self):
-        from cliqlib import set_away
-        set_away(False)
+    def test_an_old_timestamp_file_still_means_on(self):
+        # The file used to hold a timestamp and its existence meant "on".
+        # Anyone upgrading mid-session keeps the behaviour they had.
+        from cliqlib import AWAY_PATH, mode
+        AWAY_PATH.write_text("1792058070")
+        self.assertEqual(mode(), "on")
+
+    def test_an_unknown_mode_is_refused_rather_than_guessed(self):
+        from cliqlib import set_mode
+        with self.assertRaises(ValueError):
+            set_mode("sometimes")
+
+    def test_leaving_the_waiting_mode_revokes_blanket_approvals(self):
+        # A blanket "allow all" was a concession to being away from the
+        # keyboard. Notify-only means you are back at it.
+        from cliqlib import set_mode, grant_blanket_approval, blanket_approval_until
+        for leaving_to in ("notify", "off"):
+            set_mode("on")
+            grant_blanket_approval("sess", 600)
+            self.assertTrue(blanket_approval_until("sess"))
+            set_mode(leaving_to)
+            self.assertFalse(blanket_approval_until("sess"), leaving_to)
 
 
 class Transport(unittest.TestCase):

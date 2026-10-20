@@ -9,23 +9,28 @@ Away mode is the switch between "notify me" and "wait for me".
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cliqctl.py" away on
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cliqctl.py" away notify
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cliqctl.py" away off
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cliqctl.py" away
 ```
 
-There are two states and no third.
+Three states, because "tell me what happened" and "hold the session until I
+answer" are different wants.
 
-**Off** (the default): nothing happens at all. No Cliq messages, no waiting,
-no relay calls. The hooks still fire -- a plugin's hooks cannot be
-unregistered at runtime -- but they return immediately, so the terminal
-behaves exactly as it would without this plugin installed.
+**Off** (the default): nothing at all. No Cliq messages, no waiting, no relay
+calls. The hooks still fire -- a plugin's hooks cannot be unregistered at
+runtime -- but they return immediately, so the terminal behaves exactly as it
+would without this plugin installed.
 
-**On**: when Claude finishes a turn or hits a permission request, it posts to
-Cliq and then waits for a reply before continuing. Permission requests that go
+**Notify**: Cliq hears about it, the terminal never waits. Good for a long
+build you want to know the end of while staying at your desk. Replying in Cliq
+will NOT reach the session -- say so if they try, and point them at `on`.
+
+**On**: Claude posts to Cliq and then waits for a reply before continuing, for
+a finished turn and for a permission request alike. Permissions that go
 unanswered fall back to the normal terminal prompt rather than being denied.
 
-So "off" means silent, not "notify without waiting". Someone who turns it off
-has said they do not want to be interrupted, and a ping is an interruption.
+Only `on` ever holds a session. Only `on` accepts replies.
 
 It waits **30 minutes at a time**, and that clock restarts on every reply, so
 a long back-and-forth never runs out of window — only a long silence does.

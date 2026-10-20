@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 
 import hookutil as H
-from cliqlib import is_away, new_request_id
+from cliqlib import is_away, notifies, new_request_id
 
 LIMIT = 600
 
@@ -24,7 +24,8 @@ LIMIT = 600
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "failure"
     payload = H.read_payload()
-    if not is_away():
+    # A tool failing is news whether or not you want the session held.
+    if not notifies():
         return 0
 
     cfg, relay = H.ready()

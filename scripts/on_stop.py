@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 
 import hookutil as H
-from cliqlib import block_streak, is_away, new_request_id
+from cliqlib import block_streak, is_away, new_request_id, notifies
 
 
 def main() -> int:
@@ -24,10 +24,8 @@ def main() -> int:
 
     # Off means OFF. The hook still fires -- hooks.json is static in the
     # plugin and cannot be unregistered at runtime -- but it does nothing:
-    # no relay call, no Cliq message, no block. Away mode used to gate only
-    # the blocking and notify regardless, which meant "off" still filled
-    # someone's Cliq with pings they had explicitly asked to stop.
-    if not is_away():
+    # no relay call, no Cliq message, no block.
+    if not notifies():
         return 0
 
     cfg, relay = H.ready()

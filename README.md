@@ -76,8 +76,17 @@ they are never auto-denied.
 
 ## What triggers a ping
 
-Nothing below happens at all while away mode is **off** -- the hooks return
-immediately. With it **on**:
+Away mode has three states, set with `/claude-cliq:away <state>`:
+
+| | Cliq hears about it | the session waits |
+| --- | --- | --- |
+| `off` (default) | no | no |
+| `notify` | yes | no |
+| `on` | yes | yes |
+
+Only `on` ever holds a session, and only `on` accepts replies -- a reply sent
+while in `notify` has nothing to reach. Nothing below happens at all in
+`off`; the hooks fire and return immediately.
 
 | Trigger | Hook | Blocks? |
 | --- | --- | --- |

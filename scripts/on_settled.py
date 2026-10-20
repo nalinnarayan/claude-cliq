@@ -22,9 +22,8 @@ from cliqlib import is_away
 
 
 def main() -> int:
-    # Nothing is ever waiting while away mode is off, so there is nothing to
-    # disarm. Checked first so the hook does the least possible work on a path
-    # that runs after EVERY tool call.
+    # Only the waiting mode ever arms a waiter, so only it has anything to
+    # disarm. Checked first because this runs after EVERY tool call.
     if not is_away():
         return 0
 

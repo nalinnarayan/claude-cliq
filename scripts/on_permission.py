@@ -16,7 +16,7 @@ import sys
 
 import hookutil as H
 from cliqlib import (blanket_approval_until, grant_blanket_approval,
-                     is_away, new_request_id)
+                     is_away, new_request_id, notifies)
 
 PREVIEW_CHARS = 700
 
@@ -58,7 +58,7 @@ def describe(tool: str, tool_input: dict) -> str:
 
 def main() -> int:
     payload = H.read_payload()
-    if not is_away():
+    if not notifies():
         return 0
 
     cfg, relay = H.ready()
@@ -84,6 +84,16 @@ def main() -> int:
     text = (f"🔐 Permission needed — {tool}"
             + (f"\n{ctx}" if ctx else "")
             + (f"\n\n{detail}" if detail else ""))
+
+    if not is_away():
+        # notify-only. Say a permission came up, then get out of the way: the
+        # terminal prompt is already in front of the person and nothing sent
+        # here could approve anything, so buttons would be a lie. Emitting no
+        # decision is what lets that prompt proceed normally.
+        H.send(relay, kind="permission", text=text, request_id=rid,
+               session_id=session_id, cwd=cwd, expects_reply=False,
+               hint="waiting for you at the terminal")
+        return 0
 
     mins = int(cfg.blanket_approval_seconds // 60)
     if not H.send(relay, kind="permission", text=text, request_id=rid,

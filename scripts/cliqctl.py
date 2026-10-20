@@ -19,9 +19,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import waiter
-from cliqlib import (CONFIG_PATH, Relay, RelayError, ensure_block_cap,
-                     is_away, load_config, new_request_id, save_config,
-                     set_away)
+from cliqlib import (CONFIG_PATH, MODES, Relay, RelayError, ensure_block_cap,
+                     load_config, mode, new_request_id, save_config, set_mode)
 
 # Where a teammate pairs if they pass no --relay. This is the live relay, not
 # a placeholder: getting it wrong means pairing succeeds against nothing.
@@ -70,13 +69,34 @@ def cmd_unpair(args) -> int:
     return 0
 
 
+AWAY_HELP = {
+    "off": "nothing at all — no Cliq messages, no waiting",
+    "notify": "messages only — Cliq hears about it, the terminal never waits",
+    "on": "messages, and the session waits for your reply",
+}
+
+
 def cmd_away(args) -> int:
     if args.state is None:
-        print("away: on" if is_away() else "away: off")
+        current = mode()
+        print(f"away: {current}  ({AWAY_HELP[current]})")
         return 0
-    on = args.state.lower() in {"on", "yes", "true", "1"}
-    set_away(on)
-    if on:
+    wanted = args.state.lower()
+    aliases = {"yes": "on", "true": "on", "1": "on",
+               "no": "off", "false": "off", "0": "off",
+               "notify-only": "notify", "quiet": "notify"}
+    wanted = aliases.get(wanted, wanted)
+    if wanted not in MODES:
+        print(f"Unknown mode {args.state!r}. Pick one of: "
+              + ", ".join(f"{m} ({AWAY_HELP[m]})" for m in MODES))
+        return 2
+    set_mode(wanted)
+    on = wanted == "on"
+    if wanted == "notify":
+        print("Notify-only — Claude will tell you what happened in Cliq and "
+              "never hold the terminal.")
+        print("\nReplying there won't reach the session. Use `away on` for that.")
+    elif on:
         print("Away mode on — Claude will ping you in Cliq and wait for a "
               "reply before finishing.")
         # Said up front, because the alternative is learning it from a reply
@@ -100,7 +120,7 @@ def cmd_status(args) -> int:
     print(f"relay      : {cfg.relay_url or '(unset)'}")
     print(f"paired     : {'yes' if cfg.paired else 'no'}")
     print(f"enabled    : {cfg.enabled}")
-    print(f"away mode  : {'on' if is_away() else 'off (silent — nothing is sent)'}")
+    print(f"away mode  : {mode()}  ({AWAY_HELP[mode()]})")
     print(f"transport  : {cfg.transport}" +
           ("  (doorbell; ~1 read per reply)" if cfg.transport == "stream"
            else f"  (polling every {cfg.poll_fallback_seconds:.0f}s)"))

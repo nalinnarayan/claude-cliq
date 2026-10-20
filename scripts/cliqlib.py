@@ -282,20 +282,50 @@ def send_allowed(limit_per_min: int) -> bool:
         return True
 
 
-def is_away() -> bool:
-    """Away mode is opt-in blocking. Disarmed, nothing ever holds a session."""
-    return AWAY_PATH.exists()
+# Three states, because "tell me what happened" and "hold the session until I
+# answer" are different wants and conflating them loses one of them.
+#
+#   off     nothing at all -- no messages, no waiting, no relay calls
+#   notify  messages only, fire-and-forget; the terminal never waits
+#   on      messages, and the session waits for your reply
+MODES = ("off", "notify", "on")
 
 
-def set_away(on: bool) -> None:
+def mode() -> str:
+    """Which of the three states is active."""
+    try:
+        raw = AWAY_PATH.read_text().strip().lower()
+    except Exception:
+        return "off"
+    if raw in MODES:
+        return raw
+    # The file used to hold a timestamp and its mere existence meant "on".
+    # Anyone upgrading mid-session keeps the behaviour they had.
+    return "on"
+
+
+def set_mode(new_mode: str) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    if on:
-        AWAY_PATH.write_text(str(int(time.time())))
-    else:
+    if new_mode not in MODES:
+        raise ValueError(f"unknown mode {new_mode!r}; expected one of {MODES}")
+    if new_mode == "off":
         AWAY_PATH.unlink(missing_ok=True)
-        # Coming back to the keyboard revokes any blanket approval: it was
-        # a concession to being away, not a standing permission.
+    else:
+        AWAY_PATH.write_text(new_mode)
+    if new_mode != "on":
+        # A blanket approval was a concession to being away from the keyboard.
+        # Anything short of waiting means you are back at it.
         clear_blanket_approvals()
+
+
+def is_away() -> bool:
+    """True only in the state that actually holds a session."""
+    return mode() == "on"
+
+
+def notifies() -> bool:
+    """True whenever Cliq should hear about anything at all."""
+    return mode() != "off"
 
 
 class RelayError(Exception):
