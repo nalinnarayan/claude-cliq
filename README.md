@@ -76,6 +76,9 @@ they are never auto-denied.
 
 ## What triggers a ping
 
+Nothing below happens at all while away mode is **off** -- the hooks return
+immediately. With it **on**:
+
 | Trigger | Hook | Blocks? |
 | --- | --- | --- |
 | Task finished / Claude asked something | `Stop` | only when away |

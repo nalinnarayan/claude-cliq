@@ -18,9 +18,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import hookutil as H
 import waiter
+from cliqlib import is_away
 
 
 def main() -> int:
+    # Nothing is ever waiting while away mode is off, so there is nothing to
+    # disarm. Checked first so the hook does the least possible work on a path
+    # that runs after EVERY tool call.
+    if not is_away():
+        return 0
+
     payload = H.read_payload()
     tool_use_id = payload.get("tool_use_id", "")
     if tool_use_id:

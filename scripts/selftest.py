@@ -477,6 +477,37 @@ class SessionTitle(unittest.TestCase):
         self.assertEqual(waiter.session_title("", "/Users/someone"), "")
 
 
+class AwayMode(unittest.TestCase):
+    """Two states, and off means off."""
+
+    def setUp(self):
+        clean()
+
+    def run_stop_hook(self, away):
+        """Run on_stop.py the way Claude Code does, and report what it did."""
+        import subprocess, json as _j
+        from cliqlib import set_away
+        set_away(away)
+        payload = _j.dumps({"session_id": "t", "cwd": "/tmp/x",
+                            "last_assistant_message": "an answer",
+                            "stop_hook_active": False})
+        env = dict(os.environ)
+        r = subprocess.run([sys.executable, str(pathlib.Path(__file__).parent / "on_stop.py")],
+                           input=payload, capture_output=True, text=True, env=env, timeout=20)
+        return r
+
+    def test_off_sends_nothing_and_returns_at_once(self):
+        # Away mode used to gate only the BLOCKING and notify regardless, so
+        # "off" still filled someone's Cliq with pings they had asked to stop.
+        r = self.run_stop_hook(False)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout.strip(), "", "no decision, and nothing sent")
+
+    def tearDown(self):
+        from cliqlib import set_away
+        set_away(False)
+
+
 class Transport(unittest.TestCase):
     """The escape hatch has to be real, not just configurable."""
 

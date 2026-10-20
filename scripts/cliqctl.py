@@ -85,7 +85,8 @@ def cmd_away(args) -> int:
               f"time, restarting that clock on every reply. Past it the "
               f"session is released and you carry on at the terminal.")
     else:
-        print("Away mode off — Claude still notifies Cliq but never waits.")
+        print("Away mode off — no Cliq messages and no waiting until you turn "
+              "it back on.")
     return 0
 
 
@@ -99,7 +100,7 @@ def cmd_status(args) -> int:
     print(f"relay      : {cfg.relay_url or '(unset)'}")
     print(f"paired     : {'yes' if cfg.paired else 'no'}")
     print(f"enabled    : {cfg.enabled}")
-    print(f"away mode  : {'on' if is_away() else 'off'}")
+    print(f"away mode  : {'on' if is_away() else 'off (silent — nothing is sent)'}")
     print(f"transport  : {cfg.transport}" +
           ("  (doorbell; ~1 read per reply)" if cfg.transport == "stream"
            else f"  (polling every {cfg.poll_fallback_seconds:.0f}s)"))
