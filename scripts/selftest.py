@@ -299,6 +299,28 @@ class Chooser(unittest.TestCase):
         served = [r for r in ("aaaaa", "bbbbb") if handed_over(r)]
         self.assertEqual(len(served), 1, f"delivered to {served}")
 
+    def test_buttons_prefer_the_sessions_own_name_over_its_folder(self):
+        # Claude Code writes an ai-title into each transcript -- the name its
+        # own /resume picker shows. It is the only human-readable name a
+        # session has, and for one started in the home directory the folder
+        # basename is "nalin-20844", which identifies nothing.
+        for rid, title in (("aaaaa", "replace-polling-with-data-streams"),
+                           ("bbbbb", "assured video recut")):
+            waiter.arm(rid, session_id="s", kind="finished",
+                       cwd="/Users/nalin-20844", expires_at=time.time() + 60)
+            path = waiter._path(rid)
+            import json as _j
+            d = _j.loads(path.read_text()); d["title"] = title
+            path.write_text(_j.dumps(d))
+        relay = FakeRelay([[row("1", "yes")]])
+        collect._drain(self.cfg, relay, "zzzzz")
+        labels = sorted(a["label"] for a in relay.sent[0]["answers"])
+        self.assertEqual(labels, ["assured video recut", "replace-polling-with"])
+        for a in relay.sent[0]["answers"]:
+            self.assertLessEqual(len(a["label"]), 20)
+        # Truncated on the button, whole in the text.
+        self.assertIn("replace-polling-with-data-streams", relay.sent[0]["text"])
+
     def test_the_chooser_names_what_each_session_is_waiting_about(self):
         # A hook is given a session_id (a UUID), a cwd and the last message --
         # never a session name, because Claude Code does not expose one. The

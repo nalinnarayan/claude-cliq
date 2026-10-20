@@ -402,7 +402,49 @@ The held reply is now dropped the moment it is consumed, not with the rest at
 the end. There is a test that fires two taps in one fetch and asserts exactly
 one session was served.
 
-### A session has no name to show
+### A session's name is in its transcript, where /resume reads it
+
+First answer was "a hook is given a UUID, a cwd and the last message, so there
+is no name" — true of the hook payload, and wrong about the machine. Claude
+Code writes the name its own `/resume` picker shows straight into the session
+transcript:
+
+```json
+{"type":"ai-title","aiTitle":"replace-polling-with-data-streams",
+ "sessionId":"142147c0-a091-45ab-9ca8-abb8c859a2f7"}
+```
+
+At `~/.claude/projects/<cwd with / replaced by ->/<session-id>.jsonl`, rewritten
+as the conversation moves on, alongside `last-prompt`. The waiter already holds
+`session_id` and `cwd`, so the path is constructible and the title is the one
+thing a person actually recognises.
+
+Read from the **end** of the file: these transcripts reach tens of megabytes,
+and the title is rewritten often enough that the newest is always near the
+tail. Looked up once when the waiter is armed, not when the chooser runs — a
+blocked hook has time to spare, the collector is on the path of every reply.
+
+Why it matters more than it sounds: this session's folder basename is
+`nalin-20844`, because it was started in the home directory. The folder
+identifies nothing at all, which is precisely why the buttons looked wrong.
+
+```
+Which one is this for?
+
+- *assured video recut* (assured) — question
+  _Cut at 4K or 1080p?_
+- *replace-polling-with-data-streams* (nalin-20844) — question
+  _Shall I deploy the relay now?_
+
+[ assured video recut ]  [ replace-polling-with ]
+```
+
+The button takes the title truncated to Cliq's 20 characters, the text carries
+it whole with the folder in brackets. Best-effort throughout: a missing title
+falls back to the folder, and nothing depends on the transcript format holding
+still.
+
+
 
 Asked why the chooser's buttons say `claude-cliq` rather than "the assured
 video one". Because a hook is handed a `session_id` (a UUID), a `cwd`, and the

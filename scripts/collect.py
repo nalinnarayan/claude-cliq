@@ -153,19 +153,24 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
     # what kind of thing each session wants goes in the text instead.
     answers, lines, seen = [], [], set()
     for w in armed[:5]:
+        # The session's own name first -- the one Claude Code's /resume picker
+        # shows. The folder is the fallback, and for a session started in the
+        # home directory it is useless ("nalin-20844"), which is what made the
+        # buttons unrecognisable.
         where = (w.get("cwd") or "").rstrip("/").split("/")[-1] or "session"
-        label = where[:20]
-        while label in seen:                 # two sessions, one folder name
-            label = f"{where[:18]}·{len(seen)}"
+        title = " ".join((w.get("title") or "").split())
+        base = title or where
+        label = base[:20]
+        while label in seen:                 # two sessions, one name
+            label = f"{base[:18]}·{len(seen)}"
         seen.add(label)
         kind = "permission" if w.get("kind") == "permission" else "question"
         answers.append({"label": label, "value": "pick", "req": w["request_id"]})
-        # The label can only be the folder -- twenty characters, and a hook is
-        # never told a session's name because there isn't one. So what each
-        # session is actually waiting about goes here, where there is room to
-        # recognise it.
+        # Twenty characters truncates most titles, so the full one goes here
+        # along with what that session is actually waiting about.
         topic = " ".join((w.get("topic") or "").split())[:110]
-        lines.append(f"- *{label}* — {kind}" + (f"\n  _{topic}_" if topic else ""))
+        head = f"- *{title or where}*" + (f" ({where})" if title else "") + f" — {kind}"
+        lines.append(head + (f"\n  _{topic}_" if topic else ""))
     more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
     body = "\n".join(lines)
     sent = _notify(relay,

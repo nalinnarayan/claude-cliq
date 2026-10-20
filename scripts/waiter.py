@@ -34,6 +34,42 @@ def _path(request_id: str) -> Path:
     return WAITERS_DIR / f"{request_id}.json"
 
 
+def session_title(session_id: str, cwd: str) -> str:
+    """The name Claude Code's own /resume picker shows for this session.
+
+    Claude Code writes `{"type":"ai-title","aiTitle":…,"sessionId":…}` into the
+    session transcript at ~/.claude/projects/<cwd with / as ->/<id>.jsonl, and
+    rewrites it as the conversation moves on. That is the only human-readable
+    name a session has -- a hook is otherwise given a UUID and a folder.
+
+    Read from the END of the file: these transcripts run to tens of megabytes
+    and the title is written repeatedly, so the newest one is near the tail.
+    Entirely best-effort -- a title is nice, never load-bearing.
+    """
+    if not session_id or not cwd:
+        return ""
+    try:
+        path = (Path.home() / ".claude" / "projects"
+                / cwd.replace("/", "-") / f"{session_id}.jsonl")
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - 256_000))
+            tail = fh.read().decode("utf-8", "replace")
+        for line in reversed(tail.splitlines()):
+            if '"ai-title"' not in line:
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue            # a partial first line from the seek
+            if data.get("type") == "ai-title" and data.get("aiTitle"):
+                return str(data["aiTitle"])
+    except Exception:
+        pass
+    return ""
+
+
 def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
         expires_at: float | None = None, tool_use_id: str = "",
         topic: str = "") -> Path:
@@ -53,6 +89,10 @@ def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
         "kind": kind,
         "cwd": cwd,
         "topic": (topic or "").strip()[:160],
+        # Looked up once, here, rather than when the chooser runs: the
+        # transcripts are large and a blocked hook has time to spare, whereas
+        # the collector is on the path of every reply.
+        "title": session_title(session_id, cwd),
         "pid": os.getpid(),
         "armed_at": time.time(),
         # Written down because a hook killed at its timeout never runs its
