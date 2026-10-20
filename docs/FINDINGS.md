@@ -402,6 +402,37 @@ The held reply is now dropped the moment it is consumed, not with the rest at
 the end. There is a test that fires two taps in one fetch and asserts exactly
 one session was served.
 
+### A session's transcript stays put; its cwd does not
+
+The button said `claude-cliq` where `replace-polling-with` was expected. The
+title lookup was deriving the transcript path from the cwd the hook reported:
+
+```
+transcript lives at:  -Users-nalin-20844/142147c0-….jsonl
+cwd=/Users/nalin-20844              -> FOUND
+cwd=/Users/nalin-20844/claude-cliq  -> MISSING
+```
+
+A transcript lives under the directory the session **started** in. The cwd
+moves — any `cd` during the conversation changes what the hook reports — so
+the derived path missed, the lookup returned nothing, and the chooser fell
+back to the folder basename. Which happened to be `claude-cliq`, looking
+plausible enough to pass for a real answer.
+
+A session id is a UUID, so the transcript is simply findable:
+`projects/*/<session-id>.jsonl`. The cwd is kept only as a hint tried first,
+to avoid globbing in the common case.
+
+Two general shapes worth keeping:
+
+- **A derived path is an assumption.** `cwd.replace("/", "-")` encodes a
+  belief that cwd never changes, which nothing guarantees and this project
+  disproves several times a day.
+- **A plausible fallback hides the failure it is covering.** Falling back to
+  the folder meant a broken lookup produced a reasonable-looking label instead
+  of an obvious blank. The same shape as the poll fallback masking a dead
+  stream, and as a swallowed error reading as success.
+
 ### A title captured at arm time can be captured too early
 
 Reported as *"still not seeing the session names"* after the titles landed.

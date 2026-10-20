@@ -46,11 +46,23 @@ def session_title(session_id: str, cwd: str) -> str:
     and the title is written repeatedly, so the newest one is near the tail.
     Entirely best-effort -- a title is nice, never load-bearing.
     """
-    if not session_id or not cwd:
+    if not session_id:
         return ""
     try:
-        path = (Path.home() / ".claude" / "projects"
-                / cwd.replace("/", "-") / f"{session_id}.jsonl")
+        root = Path.home() / ".claude" / "projects"
+        # The cwd is a HINT, not the answer. A transcript lives under the
+        # directory the session STARTED in, and a session's cwd moves -- any
+        # `cd` during the conversation changes what the hook reports. Deriving
+        # the path from the current cwd silently missed, the lookup returned
+        # nothing, and the chooser fell back to a folder name.
+        #
+        # A session id is a UUID, so it is simply findable. The hint is tried
+        # first only to avoid a glob in the common case.
+        path = root / cwd.replace("/", "-") / f"{session_id}.jsonl" if cwd else None
+        if path is None or not path.exists():
+            path = next(root.glob(f"*/{session_id}.jsonl"), None)
+        if path is None:
+            return ""
         with path.open("rb") as fh:
             fh.seek(0, os.SEEK_END)
             size = fh.tell()

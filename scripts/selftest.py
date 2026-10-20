@@ -11,6 +11,7 @@ CLAUDE_CLIQ_HOME so it cannot touch a real pairing.
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 import tempfile
 import time
@@ -433,6 +434,47 @@ class Chooser(unittest.TestCase):
         got = collect._drain(self.cfg, relay, "aaaaa")
         self.assertEqual(got["text"], "just do it")
         self.assertEqual([m for m in relay.sent if m.get("kind") == "choose"], [])
+
+
+class SessionTitle(unittest.TestCase):
+    """Finding the name Claude Code's /resume picker shows."""
+
+    def setUp(self):
+        import tempfile
+        self.home = pathlib.Path(tempfile.mkdtemp())
+        self.root = self.home / ".claude" / "projects"
+        # A session STARTED in the home directory, so its transcript lives
+        # under that path -- whatever the cwd becomes later.
+        d = self.root / "-Users-someone"
+        d.mkdir(parents=True)
+        (d / "abc-123.jsonl").write_text(
+            '{"type":"user"}\n'
+            '{"type":"ai-title","aiTitle":"first guess","sessionId":"abc-123"}\n'
+            '{"type":"assistant"}\n'
+            '{"type":"ai-title","aiTitle":"the current one","sessionId":"abc-123"}\n')
+        self._home = pathlib.Path.home
+        pathlib.Path.home = staticmethod(lambda: self.home)
+
+    def tearDown(self):
+        pathlib.Path.home = self._home
+
+    def test_the_newest_title_wins(self):
+        # Claude Code rewrites ai-title as the conversation moves on.
+        self.assertEqual(waiter.session_title("abc-123", "/Users/someone"),
+                         "the current one")
+
+    def test_a_cwd_that_moved_still_finds_the_transcript(self):
+        # The bug a user hit: any `cd` during a session changes the cwd the
+        # hook reports, but the transcript stays where the session STARTED.
+        # Deriving the path from the current cwd missed silently, and the
+        # chooser fell back to a folder name.
+        for cwd in ("/Users/someone/project", "/Users/someone/project/deep", ""):
+            self.assertEqual(waiter.session_title("abc-123", cwd),
+                             "the current one", f"cwd={cwd!r}")
+
+    def test_an_unknown_session_is_not_an_error(self):
+        self.assertEqual(waiter.session_title("nope", "/Users/someone"), "")
+        self.assertEqual(waiter.session_title("", "/Users/someone"), "")
 
 
 class Transport(unittest.TestCase):
