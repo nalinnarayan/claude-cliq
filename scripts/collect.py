@@ -160,7 +160,12 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         seen.add(label)
         kind = "permission" if w.get("kind") == "permission" else "question"
         answers.append({"label": label, "value": "pick", "req": w["request_id"]})
-        lines.append(f"- *{label}* — {kind}")
+        # The label can only be the folder -- twenty characters, and a hook is
+        # never told a session's name because there isn't one. So what each
+        # session is actually waiting about goes here, where there is room to
+        # recognise it.
+        topic = " ".join((w.get("topic") or "").split())[:110]
+        lines.append(f"- *{label}* — {kind}" + (f"\n  _{topic}_" if topic else ""))
     more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
     body = "\n".join(lines)
     sent = _notify(relay,
@@ -211,7 +216,12 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
                 rid, payload = waiter.route(held["text"], [picked], bound=True)
                 if rid and waiter.resolve(rid, payload):
                     log(f"collect: chooser sent the held reply to {rid}")
-                    taken += [item["id"], held["id"]]
+                    # Dropped NOW, not with the rest at the end of the loop.
+                    # oldest_needing_pick() re-reads from disk, so a deferred
+                    # drop let a second tap find the same held reply and
+                    # deliver it to a second session -- one answer landing in
+                    # two places, which is the one thing this must never do.
+                    spool.drop([item["id"], held["id"]])
                     if rid == want:
                         mine = payload
                         waiter.disarm(rid)

@@ -63,7 +63,7 @@ def main() -> int:
         return 0
 
     reply = H.block_for_reply(cfg, rid, session_id=session_id, kind="finished",
-                              cwd=cwd)
+                              cwd=cwd, topic=body)
     if not reply:
         # Window lapsed. The session is released and cannot be fed from
         # outside again; a later reply is answered by the daemon with where

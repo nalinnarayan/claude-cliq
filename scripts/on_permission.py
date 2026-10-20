@@ -96,7 +96,8 @@ def main() -> int:
 
     reply = H.block_for_reply(cfg, rid, session_id=session_id,
                               kind="permission", cwd=cwd,
-                              tool_use_id=payload.get("tool_use_id", ""))
+                              tool_use_id=payload.get("tool_use_id", ""),
+                              topic=f"{tool}: {detail}")
 
     if not reply or reply.get("type") != "verdict":
         # Say nothing at all, which is how a hook declines to decide and hands

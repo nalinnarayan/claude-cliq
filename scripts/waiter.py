@@ -35,7 +35,16 @@ def _path(request_id: str) -> Path:
 
 
 def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
-        expires_at: float | None = None, tool_use_id: str = "") -> Path:
+        expires_at: float | None = None, tool_use_id: str = "",
+        topic: str = "") -> Path:
+    """Arm a waiter.
+
+    `topic` is a short note on what this session is waiting about. Claude Code
+    gives a hook a session_id (a UUID), a cwd, and the last message -- there is
+    no session NAME to show anyone. The folder is recognisable for some
+    projects and meaningless for others, so the question itself is carried
+    here and shown in the chooser.
+    """
     WAITERS_DIR.mkdir(parents=True, exist_ok=True)
     p = _path(request_id)
     p.write_text(json.dumps({
@@ -43,6 +52,7 @@ def arm(request_id: str, *, session_id: str, kind: str, cwd: str,
         "session_id": session_id,
         "kind": kind,
         "cwd": cwd,
+        "topic": (topic or "").strip()[:160],
         "pid": os.getpid(),
         "armed_at": time.time(),
         # Written down because a hook killed at its timeout never runs its

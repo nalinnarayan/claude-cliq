@@ -127,7 +127,8 @@ def relay_for(cfg: Config) -> Relay:
 
 
 def block_for_reply(cfg: Config, request_id: str, *, session_id: str,
-                    kind: str, cwd: str, tool_use_id: str = "") -> dict | None:
+                    kind: str, cwd: str, tool_use_id: str = "",
+                    topic: str = "") -> dict | None:
     """Arm a waiter and hold this session until the reply arrives.
 
     The ONE place that knows which transport is live. Everything downstream --
@@ -137,7 +138,7 @@ def block_for_reply(cfg: Config, request_id: str, *, session_id: str,
     window = cfg.permission_wait_seconds if kind == "permission" else cfg.wait_seconds
     deadline = time.time() + window
     waiter.arm(request_id, session_id=session_id, kind=kind, cwd=cwd,
-               expires_at=deadline, tool_use_id=tool_use_id)
+               expires_at=deadline, tool_use_id=tool_use_id, topic=topic)
     try:
         import collect
         reply = collect.wait_for(cfg, relay_for(cfg), request_id, deadline)

@@ -283,6 +283,37 @@ class Chooser(unittest.TestCase):
             collect._drain(self.cfg, relay, "aaaaa")
         self.assertEqual(len([m for m in relay.sent if m.get("kind") == "choose"]), 1)
 
+    def test_one_reply_can_only_ever_reach_one_session(self):
+        # Observed in production: two taps arrived in the same fetch and the
+        # SAME held reply was delivered to both sessions. spool.drop() ran
+        # after the loop while oldest_needing_pick() re-read from disk, so the
+        # second tap found the reply still there. One answer, two places --
+        # the one thing this must never do.
+        self.arm("aaaaa", "/x/a")
+        self.arm("bbbbb", "/x/b")
+        relay = FakeRelay([[row("1", "only for one of you")],
+                           [row("2", "", request_id="aaaaa"),
+                            row("3", "", request_id="bbbbb")]])
+        collect._drain(self.cfg, relay, "zzzzz")      # asks
+        collect._drain(self.cfg, relay, "zzzzz")      # both taps at once
+        served = [r for r in ("aaaaa", "bbbbb") if handed_over(r)]
+        self.assertEqual(len(served), 1, f"delivered to {served}")
+
+    def test_the_chooser_names_what_each_session_is_waiting_about(self):
+        # A hook is given a session_id (a UUID), a cwd and the last message --
+        # never a session name, because Claude Code does not expose one. The
+        # folder is all a 20-char label can carry, so the question has to show
+        # up in the text or the buttons are a guess.
+        waiter.arm("aaaaa", session_id="s", kind="finished", cwd="/x/proj-a",
+                   expires_at=time.time() + 60, topic="Shall I cut the video at 4K?")
+        waiter.arm("bbbbb", session_id="s", kind="finished", cwd="/x/proj-b",
+                   expires_at=time.time() + 60, topic="Ready to deploy the relay?")
+        relay = FakeRelay([[row("1", "yes")]])
+        collect._drain(self.cfg, relay, "zzzzz")
+        text = relay.sent[0]["text"]
+        self.assertIn("cut the video at 4K", text)
+        self.assertIn("deploy the relay", text)
+
     def test_a_rejected_chooser_is_asked_again_not_remembered_as_asked(self):
         # The second half of the same production failure: the send was
         # rejected, the code recorded "asked" anyway, and the reply was never

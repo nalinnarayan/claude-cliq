@@ -70,6 +70,21 @@ test('a reply rings the doorbell exactly once, with no message body', async () =
   assert.match(wake, /^[0-9a-f]{32}$/, 'an opaque 128-bit hex label');
 });
 
+test('a button tap rings the doorbell too', async () => {
+  // A tap queued a reply and rang nothing, so a button press sat in the relay
+  // until some unrelated event woke the leader -- measured at four and a half
+  // minutes and indistinguishable from the button being broken. It affected
+  // the chooser and every permission Allow/Deny alike.
+  const h = harness();
+  await pairUser(h, 'u1', 'u1@example.com');
+  await h.relay.action({
+    headers: secret,
+    body: { cliq_user: 'u1', req: 'abcde', ans: 'allow' },
+  });
+  assert.strictEqual(h.published.length, 1, 'a tap must ring, like a typed reply');
+  assert.match(h.published[0], /^[0-9a-f]{32}$/, 'and carry only the label');
+});
+
 test('the wake label is per account, stable, and unguessable without the secret', async () => {
   const a = harness();
   const b = harness();                        // same streamSecret

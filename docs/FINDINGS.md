@@ -360,6 +360,70 @@ Tables went from five to three: `Devices`, `PairCodes`, `Pending`. `Sessions`
 and `Counters` can be dropped from the console at leisure; nothing reads or
 writes them.
 
+### A button tap queued a reply and rang no bell
+
+Reported as *"the buttons appear but selecting it does nothing"*. The log said
+otherwise — the tap worked, four and a half minutes late:
+
+```
+14:20:57  collect: asked which of ['bavqt', 'yaqbj'] a plain reply belongs to
+14:25:19  collect: fetched 3
+14:25:19  collect: chooser sent the held reply to bavqt
+```
+
+The gap is the whole diagnosis. `/cliq-inbound` publishes a wake; **`/cliq-action`
+never did.** A tap filed its row and rang nothing, so it sat in the relay until
+some unrelated event happened to wake the leader. Indistinguishable from a
+broken button.
+
+It was never only the chooser: **every permission Allow / Deny / Allow-all is a
+tap**, so the entire permission flow had the same latency. It went unnoticed
+because testing always had something else arriving to trigger a fetch.
+
+Both paths now call one `ringDoorbell()`, so a new way of queueing a reply
+cannot forget to ring. Which is the actual lesson — the publish was added to
+*the route being worked on* rather than to the act of queueing a reply.
+
+### One reply reached two sessions
+
+Found in the same log, and worse than the latency:
+
+```
+chooser sent the held reply to bavqt
+chooser sent the held reply to yaqbj
+```
+
+Two taps arrived in one fetch. `spool.drop()` ran after the loop while
+`oldest_needing_pick()` re-read from disk, so the second tap found the same
+held reply still there and delivered it to a second session. One answer, two
+places — the single rule this design exists to uphold.
+
+The held reply is now dropped the moment it is consumed, not with the rest at
+the end. There is a test that fires two taps in one fetch and asserts exactly
+one session was served.
+
+### A session has no name to show
+
+Asked why the chooser's buttons say `claude-cliq` rather than "the assured
+video one". Because a hook is handed a `session_id` (a UUID), a `cwd`, and the
+last assistant message — **Claude Code does not expose a session name**, so
+there is nothing better to put on a 20-character button.
+
+The folder is recognisable for some projects and meaningless for others, so
+the waiter now carries a `topic`: for a `Stop` hook the question Claude asked,
+for a permission the tool and its target. The button keeps the folder, because
+that is all 20 characters hold, and the message lists each session with what it
+is actually waiting about:
+
+```
+Which one is this for?
+
+- claude-cliq — question
+  _Shall I deploy the relay now?_
+- assured — question
+  _Cut the video at 4K or 1080p?_
+```
+
 ### Cliq button labels cap at 20 characters, and a rejected send looked asked
 
 The chooser's first real run produced nothing, and the log said why:

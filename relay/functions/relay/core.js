@@ -120,6 +120,30 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
    * who does not own it is that *an* account had activity, and when. Nothing
    * identifying may ever be put alongside it.
    */
+  /**
+   * Ring the doorbell for one account, after the reply has been filed.
+   *
+   * Every path that queues a reply must call this. A tap used to queue a row
+   * and ring nothing, so a button press sat in the relay until some unrelated
+   * event woke the leader -- measured at four and a half minutes, and
+   * indistinguishable from the button not working. That affected the chooser
+   * and every permission Allow/Deny alike.
+   *
+   * Non-fatal on purpose: the reply is already filed, a laptop covers a missed
+   * bell with one cheap fetch when it next starts waiting, and failing here
+   * would tell Cliq delivery failed when it had not -- and Cliq does not
+   * redeliver.
+   */
+  async function ringDoorbell(cliqUser) {
+    const wake = wakeIdFor(cliqUser);
+    if (!streams || !streams.configured || !wake) return;
+    try {
+      await streams.publishWake(wake);
+    } catch (err) {
+      console.error('wake publish failed (reply is still queued)', err && err.message);
+    }
+  }
+
   function wakeIdFor(cliqUser) {
     if (!streamSecret) return '';
     return crypto.createHmac('sha256', streamSecret)
@@ -279,6 +303,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         expires: now() + PENDING_TTL_MS,
         retain: storesBody(cliqUser),
       });
+      await ringDoorbell(cliqUser);
       return { ok: true, request_id: req, answer: ans };
     },
 
@@ -311,19 +336,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         retain: storesBody(cliqUser),
       });
 
-      // Ring the doorbell. Deliberately after the insert and deliberately
-      // non-fatal: the reply is already safely filed, and a laptop covers a
-      // missed bell with one cheap fetch when it next starts waiting. Failing
-      // the inbound here would make Cliq think delivery failed when it did
-      // not -- and Cliq does not redeliver.
-      const wake = wakeIdFor(cliqUser);
-      if (streams && streams.configured && wake) {
-        try {
-          await streams.publishWake(wake);
-        } catch (err) {
-          console.error('wake publish failed (reply is still queued)', err && err.message);
-        }
-      }
+      await ringDoorbell(cliqUser);
       return { ok: true };
     },
 
