@@ -86,8 +86,18 @@ class Config:
     #             overridable by CLAUDE_CLIQ_TRANSPORT so flipping it does not
     #             itself require a working stream.
     transport: str = "stream"
-    # Seconds between fetches in poll mode.
-    poll_fallback_seconds: float = 20.0
+    # Poll mode is a DEGRADED mode and is priced like one. A flat 20s interval
+    # over a 30-minute window is 90 fetches -- 180 SELECTs -- which blows the
+    # whole 10,000/month allowance at five questions a day. That is the same
+    # shape as the outage this design was built to fix, so the fallback backs
+    # off hard and is capped outright.
+    #
+    # 10s, 20s, 40s ... up to 300s, stopping after poll_fallback_budget
+    # fetches: about 20 SELECTs for a full window instead of 180. The cost is
+    # latency, which is the right thing to trade when the doorbell is broken.
+    poll_fallback_seconds: float = 10.0
+    poll_fallback_max_seconds: float = 300.0
+    poll_fallback_budget: int = 20
     # Most messages this laptop will send in one minute. Cliq's real ceiling
     # is 50/min shared across the WHOLE org, which no single machine can see;
     # this only bounds a runaway local loop, which is the failure that has

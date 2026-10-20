@@ -38,6 +38,7 @@ class FakeRelay:
         self.sent = []
 
     def poll(self, since=0, wait=0, timeout=None):
+        self.polls = getattr(self, "polls", 0) + 1
         # Mirrors the real signature, including that `timeout` is separate
         # from `wait` -- conflating them gave a non-blocking fetch a ten
         # second budget and released a session on a cold start.
@@ -236,6 +237,82 @@ class Concurrency(unittest.TestCase):
         self.assertEqual(got["text"], "for the follower")
 
 
+class Chooser(unittest.TestCase):
+    """A plain reply with several sessions waiting: ask, never guess."""
+
+    def setUp(self):
+        clean()
+        self.cfg = Config(stale_after_seconds=1800)
+
+    def arm(self, rid, cwd):
+        waiter.arm(rid, session_id="s", kind="finished", cwd=cwd,
+                   expires_at=time.time() + 60)
+
+    def test_two_sessions_waiting_produces_a_question_not_a_guess(self):
+        self.arm("aaaaa", "/x/proj-a")
+        self.arm("bbbbb", "/x/proj-b")
+        relay = FakeRelay([[row("1", "do the thing")]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertIsNone(got, "nothing is answered yet")
+        self.assertTrue(waiter.armed("aaaaa") and waiter.armed("bbbbb"),
+                        "neither session was guessed at")
+        ask = [m for m in relay.sent if m.get("kind") == "choose"]
+        self.assertEqual(len(ask), 1, "asked exactly once")
+        labels = [a["label"] for a in ask[0]["answers"]]
+        self.assertEqual(sorted(labels), ["proj-a (question)", "proj-b (question)"])
+        # Each button names its own session: that is what makes a tap
+        # unambiguous by construction rather than by inference.
+        self.assertEqual(sorted(a["req"] for a in ask[0]["answers"]),
+                         ["aaaaa", "bbbbb"])
+
+    def test_it_asks_once_not_on_every_fetch(self):
+        self.arm("aaaaa", "/x/a")
+        self.arm("bbbbb", "/x/b")
+        relay = FakeRelay([[row("1", "hello")], [], []])
+        for _ in range(3):
+            collect._drain(self.cfg, relay, "aaaaa")
+        self.assertEqual(len([m for m in relay.sent if m.get("kind") == "choose"]), 1)
+
+    def test_a_tap_delivers_the_held_text_to_the_session_named(self):
+        self.arm("aaaaa", "/x/a")
+        self.arm("bbbbb", "/x/b")
+        relay = FakeRelay([[row("1", "run the tests")],
+                           # /cliq-action maps a pick to an empty body bound
+                           # to the chosen request id.
+                           [row("2", "", request_id="bbbbb")]])
+        collect._drain(self.cfg, relay, "aaaaa")          # asks
+        got = collect._drain(self.cfg, relay, "aaaaa")    # the tap
+        self.assertIsNone(got, "we were not the session picked")
+        self.assertTrue(handed_over("bbbbb"), "the picked session got the text")
+        import json as _j
+        payload = _j.loads((waiter._path("bbbbb")).read_text())["resolved"]
+        self.assertEqual(payload["text"], "run the tests", "and not retyped")
+        self.assertTrue(waiter.armed("aaaaa"), "the other is untouched")
+        self.assertEqual(spool.items(), [], "both the reply and the tap are done")
+
+    def test_an_ambiguous_reply_never_drifts_onto_a_later_question(self):
+        # The bug the needs_pick flag exists for. Two sessions waiting, reply
+        # plainly, then one session goes away -- leaving exactly one waiter.
+        # Without the flag the old text becomes the answer to whatever that
+        # session asked, minutes later and about something else.
+        self.arm("aaaaa", "/x/a")
+        self.arm("bbbbb", "/x/b")
+        relay = FakeRelay([[row("1", "about the FIRST thing")], [], []])
+        collect._drain(self.cfg, relay, "aaaaa")
+        waiter.disarm("bbbbb")                            # that session ends
+        got = collect._drain(self.cfg, relay, "aaaaa")    # only aaaaa remains
+        self.assertIsNone(got, "the stale reply must NOT answer this")
+        self.assertTrue(waiter.armed("aaaaa"))
+        self.assertEqual(len(spool.items()), 1, "still waiting to be named")
+
+    def test_one_session_waiting_needs_no_chooser(self):
+        self.arm("aaaaa", "/x/a")
+        relay = FakeRelay([[row("1", "just do it")]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertEqual(got["text"], "just do it")
+        self.assertEqual([m for m in relay.sent if m.get("kind") == "choose"], [])
+
+
 class Transport(unittest.TestCase):
     """The escape hatch has to be real, not just configurable."""
 
@@ -271,6 +348,22 @@ class Transport(unittest.TestCase):
         finally:
             _wake.listen = original
         self.assertEqual(got["text"], "fell back")
+
+    def test_the_fallback_backs_off_and_stops_rather_than_draining_reads(self):
+        # A flat 20s poll over a 30-minute window is 90 fetches -- 180 reads --
+        # which spends the whole monthly allowance at five questions a day.
+        # That is how this design's predecessor died, so the fallback is
+        # capped outright.
+        cfg = Config(transport="poll", poll_fallback_seconds=0.01,
+                     poll_fallback_max_seconds=0.02, poll_fallback_budget=3)
+        self.arm("aaaaa")
+        relay = FakeRelay([])                   # never answers
+        got = collect.wait_for(cfg, relay, "aaaaa", time.time() + 5)
+        self.assertIsNone(got)
+        self.assertLessEqual(relay.polls, cfg.poll_fallback_budget,
+                             "stopped at the budget instead of filling the window")
+        self.assertTrue(any("budget" in (m.get("text") or "") for m in relay.sent),
+                        "and said so, rather than going quiet")
 
     def test_a_failed_stream_is_not_retried_immediately(self):
         # Otherwise every blocked hook pays the connect timeout over again.

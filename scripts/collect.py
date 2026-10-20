@@ -48,6 +48,15 @@ _mode = "?"
 # quickly, long enough to cost nothing.
 LEADER_RETRY = 10.0
 
+
+class _BudgetSpent(Exception):
+    """The fallback has asked often enough and is giving up for this window.
+
+    Raised rather than returned, because wait_for() re-enters the collector on
+    every leadership iteration -- a per-call counter was simply reset each
+    time, and 3 fetches became 385.
+    """
+
 # Socket budget for a non-blocking fetch. Not derived from the server's hold
 # time: a cold Catalyst container loading the vendored Data Streams SDK can
 # take longer than a few seconds, and a hook that gives up here releases the
@@ -109,11 +118,42 @@ def _mark_stream_up() -> None:
         log("collect: stream reachable again")
 
 
-def _notify(relay: Relay, text: str, kind: str = "ack") -> None:
+def _notify(relay: Relay, text: str, kind: str = "ack", *,
+            answers: list[dict] | None = None, hint: str = "") -> None:
     try:
-        relay.notify(kind=kind, text=text, request_id=new_request_id())
+        relay.notify(kind=kind, text=text, request_id=new_request_id(),
+                     answers=answers, hint=hint)
     except RelayError as exc:
         log(f"collect: notify failed: {exc}")
+
+
+def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
+    """A plain reply with several sessions waiting: ask, never guess.
+
+    One button per waiting session, each carrying THAT session's request id --
+    which is what makes a tap unambiguous by construction rather than by
+    inference. The typed text stays in the spool, so answering costs one tap
+    and nothing is retyped.
+
+    The leader that asks may well be gone by the time the tap arrives. That is
+    fine: a tap is just another queued reply, and it names its target, so
+    whichever hook collects it next can apply it.
+    """
+    answers = []
+    for w in armed[:5]:
+        where = (w.get("cwd") or "").rstrip("/").split("/")[-1] or "session"
+        kind = "permission" if w.get("kind") == "permission" else "question"
+        answers.append({"label": f"{where} ({kind})", "value": "pick",
+                        "req": w["request_id"]})
+    more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
+    preview = item["text"][:160]
+    _notify(relay,
+            f"Which one is this for?{more}\n\n_{preview}_",
+            kind="choose", answers=answers,
+            hint="tap one — I've kept what you typed")
+    spool.mark(item["id"], needs_pick=True, asked=True)
+    log(f"collect: asked which of {[w['request_id'] for w in armed]} "
+        f"a plain reply belongs to")
 
 
 def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
@@ -140,6 +180,29 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             break                       # nothing to give it to; leave it spooled
         text, bound_id = item["text"], item["request_id"]
 
+        # A chooser tap: it names a session and carries no text of its own,
+        # because the text it is about is the one we held when we asked.
+        if bound_id and not text:
+            held = spool.oldest_needing_pick()
+            picked = next((w for w in armed if w["request_id"] == bound_id), None)
+            if held and picked:
+                rid, payload = waiter.route(held["text"], [picked], bound=True)
+                if rid and waiter.resolve(rid, payload):
+                    log(f"collect: chooser sent the held reply to {rid}")
+                    taken += [item["id"], held["id"]]
+                    if rid == want:
+                        mine = payload
+                        waiter.disarm(rid)
+                    continue
+            log(f"collect: a pick for {bound_id} matched nothing to apply")
+            taken.append(item["id"])
+            continue
+
+        # Ambiguous and already asked about: it may ONLY be resolved by a tap.
+        # Routing it now is exactly the silent misdelivery the flag prevents.
+        if item.get("needs_pick"):
+            continue
+
         target = next((w for w in armed if w["request_id"] == bound_id), None)
         if bound_id and not target:
             # Named a request that is no longer waiting. Dropped rather than
@@ -158,7 +221,12 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             rid, payload = waiter.route(text, armed)
 
         if not rid or not waiter.resolve(rid, payload):
-            continue                    # ambiguous; the chooser handles it
+            # Nothing matched. With one waiter that cannot happen, so this is
+            # the several-sessions case: ask rather than guess, and mark the
+            # reply so it can never drift onto a later question.
+            if not bound_id and len(armed) > 1 and not item.get("asked"):
+                _ask_which(relay, item, armed)
+            continue
         log(f"collect: routed to {rid}: {payload.get('type')}")
         taken.append(item["id"])
         if rid == want:
@@ -248,11 +316,17 @@ def wait_for(cfg: Config, relay: Relay, request_id: str,
                 try:
                     got = (_lead(cfg, relay, request_id, deadline) if use_stream
                            else _poll_until(cfg, relay, request_id, deadline))
+                except _BudgetSpent:
+                    return None         # done asking for this window
                 except wake.WakeError as exc:
                     # Never strand the hook on a stream problem. Polling is
                     # more expensive, not broken, and the cooldown stops the
                     # next hook rediscovering the same blocked port.
                     _mark_stream_down(str(exc))
+                    _notify(relay, "⚠️ The Cliq doorbell isn't reachable, so "
+                                   "I'm falling back to polling. Replies still "
+                                   "work but cost far more, and I'll stop "
+                                   "asking after a while.")
                     got = _poll_until(cfg, relay, request_id, deadline)
                 if got:
                     return got
@@ -279,11 +353,26 @@ def _poll_until(cfg: Config, relay: Relay, want: str,
     """
     global _mode
     _mode = "poll"
+    gap = cfg.poll_fallback_seconds
+    spent = 0
     while time.time() < deadline:
         got = _drain(cfg, relay, want)
+        spent += 1
         if got:
             return got
         if not waiter.armed(want):
             return None
-        time.sleep(min(cfg.poll_fallback_seconds, max(0.0, deadline - time.time())))
+        if spent >= cfg.poll_fallback_budget:
+            # Stop rather than keep spending. A degraded mode that quietly
+            # drains the month's allowance is how this design's predecessor
+            # died; the window is handed back to the terminal instead.
+            log(f"collect: poll budget spent ({spent} fetches) — releasing to "
+                f"the terminal rather than burning reads")
+            _notify(relay, "I can't reach the Cliq doorbell, and I've used up "
+                           "the fallback's budget asking. Carry on at the "
+                           "terminal — replying here won't reach me until the "
+                           "connection is back.")
+            raise _BudgetSpent()
+        time.sleep(min(gap, max(0.0, deadline - time.time())))
+        gap = min(gap * 2, cfg.poll_fallback_max_seconds)
     return None

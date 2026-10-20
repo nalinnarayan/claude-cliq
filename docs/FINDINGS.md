@@ -360,6 +360,41 @@ Tables went from five to three: `Devices`, `PairCodes`, `Pending`. `Sessions`
 and `Counters` can be dropped from the console at leisure; nothing reads or
 writes them.
 
+### The chooser was deleted, and a commit message said otherwise
+
+Reported: *"When I swipe reply it correctly lands in that session. When I just
+reply into the text box, both sessions ignore the reply."*
+
+Both halves were working as designed and the design had a hole. `route()`
+returns `(None, None)` for a plain reply with two waiters — correct, that is
+the never-guess rule. `ask_which`, the thing that resolved the ambiguity, was
+deleted with the daemon, and the step-3 commit claimed it *"moves rather than
+dies"*. It did not move. A claim in a commit message is not a change.
+
+So a plain reply was fetched, found unroutable, and left in the spool in
+silence. Worse, it stayed **eligible**: the moment one session finished and a
+single waiter remained, that text would answer whatever was asked next.
+
+Rebuilt on the hook side, with two differences from the daemon version:
+
+- **`needs_pick`.** An ambiguous reply is marked unroutable, not merely
+  unrouted. It can only ever be resolved by naming a session. Previously
+  "nothing matched" and "must not be auto-matched" were the same state, which
+  is what made the drift possible.
+- **FIFO, not last-in.** The daemon popped the most recently held item by
+  position. The chooser now asks about one reply at a time and a tap applies
+  to the oldest outstanding one, because a leader changes hands and position
+  is not identity.
+
+What survived the deletion and needed no rebuilding: buttons, `/cliq-action`,
+and the per-button request-id override. The spool also already did the
+"hold the text" job `hold_reply` used to, so this was wiring rather than
+design.
+
+The leader that asks is often gone before the tap arrives. That turns out not
+to matter: a tap is just another queued reply and it names its target, so
+whichever hook collects it next can apply it.
+
 ### A second concurrent session gave up after ten seconds
 
 Reported, not found by testing: *"I turned away mode on from another session.

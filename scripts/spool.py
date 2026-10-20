@@ -114,6 +114,35 @@ def drop(ids) -> None:
         _write([i for i in _read() if i.get("id") not in gone])
 
 
+def mark(item_id: str, **fields) -> None:
+    """Set flags on a spooled item.
+
+    `needs_pick` is the important one: it means "this reply is ambiguous and
+    may ONLY be resolved by naming a session". Without it an unroutable reply
+    stays eligible, and the moment a single waiter is armed -- one session
+    finishes, another asks something new -- it becomes the answer to a
+    question it was never about.
+    """
+    with _Lock():
+        items_ = _read()
+        for i in items_:
+            if i.get("id") == item_id:
+                i.update(fields)
+        _write(items_)
+
+
+def oldest_needing_pick() -> dict | None:
+    """The reply a chooser tap should be applied to.
+
+    FIFO, and only one is ever outstanding: the chooser asks about one reply
+    at a time, so the tap cannot be about anything else. The old daemon popped
+    the LAST held item by position, which was fragile with one collector and
+    worse with a leader that changes hands.
+    """
+    pending = [i for i in _read() if i.get("needs_pick")]
+    return min(pending, key=lambda i: i.get("spooled_at", 0)) if pending else None
+
+
 def prune(max_age_seconds: float) -> list[dict]:
     """Remove and return anything too old to be an answer to anything.
 
