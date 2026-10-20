@@ -236,6 +236,35 @@ The bot is discoverable org-wide, so this is the part that matters.
 A stolen device token would let someone read that one user's pings. The config
 file is `0600` and `/claude-cliq:pair` revokes any previous token.
 
+## Environments
+
+| | Catalyst project | org | Cliq bot |
+| --- | --- | --- | --- |
+| **live** | `<project-test>` (68018000000067002) | <org-id-test> | `<bot-test>` |
+| spare | `<project>` (<project-id>) | <org-id> | `<bot>` |
+
+The names are the wrong way round and that is deliberate rather than
+forgotten. The second account was the original, and its Data Store read
+allowance was exhausted on 13 October — 10,000 SELECTs a month, spent in under
+two days by a 30-second poll. The first was stood up to carry on working and
+turned out to be the better environment, so it was promoted rather than
+migrated back. A Cliq bot's `unique_name` cannot be changed after creation, so
+`<bot-test>` is the live bot until someone decides a prettier name is
+worth a fresh bot, new handlers and a re-pair.
+
+Deploying:
+
+```sh
+catalyst project:use 68018000000067002 --org <org-id-test>
+bash relay/deploy.sh                 # .env.deploy        -> live
+bash relay/deploy.sh test            # .env.deploy.test   -> spare
+```
+
+Which project a deploy lands in comes from `catalyst project:use`, **not** from
+the env file, so `deploy.sh` prints the active project before it starts. The
+spare account's allowance refreshes monthly and it keeps its own bot and
+handlers, so it is usable as a test environment again without any setup.
+
 ## Known limits
 
 - **50 bot messages/min is a global ceiling**, shared across every user, because

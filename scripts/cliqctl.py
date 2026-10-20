@@ -22,7 +22,10 @@ from cliqlib import (CONFIG_PATH, Relay, RelayError, ensure_block_cap,
                      is_away, load_config, new_request_id, save_config,
                      set_away)
 
-DEFAULT_RELAY = "https://claude-cliq.catalystserverless.com/server/relay"
+# Where a teammate pairs if they pass no --relay. This is the live relay, not
+# a placeholder: getting it wrong means pairing succeeds against nothing.
+DEFAULT_RELAY = ("https://<project-test>-<org-id-test>.development"
+                 ".catalystserverless.in/server/relay")
 
 
 def cmd_pair(args) -> int:
@@ -91,7 +94,10 @@ def cmd_status(args) -> int:
     print(f"paired     : {'yes' if cfg.paired else 'no'}")
     print(f"enabled    : {cfg.enabled}")
     print(f"away mode  : {'on' if is_away() else 'off'}")
-    print(f"wait window: {cfg.wait_seconds}s  (poll leg {cfg.poll_seconds}s)")
+    print(f"transport  : {cfg.transport}" +
+          ("  (doorbell; ~1 read per reply)" if cfg.transport == "stream"
+           else f"  (polling every {cfg.poll_fallback_seconds:.0f}s)"))
+    print(f"wait window: {cfg.wait_seconds}s")
     print(f"max replies: {cfg.max_block_streak} in a row without a tool call")
     cap = os.environ.get("CLAUDE_CODE_STOP_HOOK_BLOCK_CAP")
     print(f"block cap  : {cap or 'default (8) — run pair again, then restart'}")
