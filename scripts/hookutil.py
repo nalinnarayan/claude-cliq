@@ -140,7 +140,12 @@ def block_for_reply(cfg: Config, request_id: str, *, session_id: str,
                expires_at=deadline, tool_use_id=tool_use_id)
     try:
         import collect
-        return collect.wait_for(cfg, relay_for(cfg), request_id, deadline)
+        reply = collect.wait_for(cfg, relay_for(cfg), request_id, deadline)
+        if reply is None:
+            # Only here is the window genuinely over, so only here is it safe
+            # to clear the waiter. wait() deliberately leaves it alone.
+            waiter.disarm(request_id)
+        return reply
     except Exception as exc:
         # A hook that raises here takes the whole turn down. Releasing the
         # session to the terminal is always better than that.

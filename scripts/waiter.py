@@ -133,13 +133,22 @@ def _owner_alive(data: dict) -> bool:
 
 
 def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
-    """Block until this waiter is resolved, or the deadline passes.
+    """Watch this waiter until it is resolved, or `deadline` passes.
 
     Used by a hook that is NOT the machine's fetch leader: the leader does the
-    collecting and resolves this file. There is nothing to keep alive any
-    more -- the leader is itself a blocked hook, so it cannot vanish without
-    the thing it serves vanishing too, and leadership passing is handled in
-    collect.wait_for() rather than here.
+    collecting and resolves this file.
+
+    `deadline` is a MOMENT TO STOP WATCHING, not the end of the question's
+    window -- collect.wait_for() calls this in short slices so it can re-check
+    whether leadership has fallen vacant. So timing out here does NOT disarm:
+    the caller owns the waiter's lifetime and knows whether the window is
+    actually over.
+
+    Getting that wrong was a real bug. This used to disarm on timeout, from
+    when its deadline WAS the window. Once it was called in ten-second slices,
+    the first slice disarmed the waiter, the caller read that as "answered
+    elsewhere", and every second concurrent session stopped waiting after ten
+    seconds.
     """
     p = _path(request_id)
     while time.time() < deadline:
@@ -152,10 +161,11 @@ def wait(request_id: str, deadline: float, tick: float = 0.2) -> dict | None:
         except Exception:
             data = {}
         if "resolved" in data:
+            # Disarming on RESOLVE is right: the payload has been taken, so
+            # the file has done its job.
             disarm(request_id)
             return data["resolved"]
         time.sleep(tick)
-    disarm(request_id)
     return None
 
 

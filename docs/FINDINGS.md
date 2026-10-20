@@ -360,6 +360,47 @@ Tables went from five to three: `Devices`, `PairCodes`, `Pending`. `Sessions`
 and `Counters` can be dropped from the console at leisure; nothing reads or
 writes them.
 
+### A second concurrent session gave up after ten seconds
+
+Reported, not found by testing: *"I turned away mode on from another session.
+It said it was already on and started waiting. But suddenly stopped waiting and
+showed done."*
+
+`waiter.wait()` ended with `disarm()` on timeout. That was right when its
+`deadline` **was** the question's window. It stopped being right the moment
+`collect.wait_for()` began calling it in ten-second slices so a follower could
+re-check whether leadership had fallen vacant:
+
+```
+follower: wait(rid, now + 10)   -> times out, DISARMS its own waiter
+          armed(rid)            -> False
+          "answered at the terminal, or expired" -> returns None
+hook:     emits nothing -> the turn finishes -> "done"
+```
+
+So the leader kept working and every *other* session stopped waiting after ten
+seconds. An ownership mistake, not a logic one: a function given a slice of a
+window must not clean up as though it owned the whole thing.
+
+`wait()` is now purely "watch until this moment" — it still disarms on
+**resolve**, because the payload has been taken, but never on timeout.
+`block_for_reply()` disarms when the window is genuinely over, since it is the
+only caller that knows that.
+
+Proven with a held lock and a real follower:
+
+```
+slice 1 after  10.0s -> got=None still armed=True
+slice 2 after  20.0s -> got=None still armed=True
+slice 3 after  25.1s -> got=None still armed=True
+```
+
+Worth noting how this was missed. "Two concurrent sessions" had been on the
+untested list for days and was named as the most likely regression *in the
+same message that shipped it* — the single-collector daemon existed to prevent
+exactly this race, and replacing it with a lock and a spool was never
+exercised with two real sessions. Naming a risk is not testing it.
+
 ### A connection name is a lease, and a per-device one degrades silently
 
 The sharpest bug of the lot, because nothing failed. The relay derived

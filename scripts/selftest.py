@@ -185,6 +185,57 @@ class Routing(unittest.TestCase):
                          "still recoverable by the next leader")
 
 
+class Concurrency(unittest.TestCase):
+    """Two sessions at once -- the case the single-collector daemon existed to
+    prevent, and the one that broke first."""
+
+    def setUp(self):
+        clean()
+
+    def arm(self, rid):
+        waiter.arm(rid, session_id="s", kind="finished", cwd="/tmp",
+                   expires_at=time.time() + 60)
+
+    def test_a_follower_keeps_waiting_past_one_leadership_slice(self):
+        # The reported bug: a second session said "waiting" and then "done"
+        # about ten seconds later. wait() disarmed its own waiter on timeout
+        # -- correct when its deadline WAS the window, wrong once it was
+        # called in slices -- and wait_for read the missing file as "answered
+        # elsewhere".
+        self.arm("aaaaa")
+        slice_end = time.time() + 0.3
+        self.assertIsNone(waiter.wait("aaaaa", slice_end, tick=0.05))
+        self.assertTrue(waiter.armed("aaaaa"),
+                        "a slice timing out must not clear the waiter")
+
+    def test_a_follower_gives_up_only_when_its_waiter_really_goes(self):
+        # The other half: a waiter disarmed by on_settled.py (answered at the
+        # terminal) still has to stop the follower promptly.
+        self.arm("aaaaa")
+        waiter.disarm("aaaaa")
+        self.assertFalse(waiter.armed("aaaaa"))
+
+    def test_a_resolved_waiter_is_cleared_by_the_hook_that_takes_it(self):
+        self.arm("aaaaa")
+        waiter.resolve("aaaaa", {"type": "answer", "text": "hi"})
+        got = waiter.wait("aaaaa", time.time() + 2, tick=0.05)
+        self.assertEqual(got["text"], "hi")
+        self.assertFalse(waiter.armed("aaaaa"), "taken, so cleared")
+
+    def test_only_one_of_two_hooks_leads_and_the_other_still_gets_served(self):
+        # Leader serves a reply addressed to the follower's waiter; the
+        # follower picks it up off its own file.
+        self.arm("aaaaa")                      # the follower
+        self.arm("bbbbb")                      # the leader
+        cfg = Config(stale_after_seconds=1800)
+        relay = FakeRelay([[row("1", "for the follower", request_id="aaaaa")]])
+        with collect._Leadership() as leading:
+            self.assertTrue(leading)
+            collect._drain(cfg, relay, "bbbbb")
+        got = waiter.wait("aaaaa", time.time() + 2, tick=0.05)
+        self.assertEqual(got["text"], "for the follower")
+
+
 class Transport(unittest.TestCase):
     """The escape hatch has to be real, not just configurable."""
 
