@@ -119,12 +119,20 @@ def _mark_stream_up() -> None:
 
 
 def _notify(relay: Relay, text: str, kind: str = "ack", *,
-            answers: list[dict] | None = None, hint: str = "") -> None:
+            answers: list[dict] | None = None, hint: str = "") -> bool:
+    """Returns whether it actually went out.
+
+    The return value matters: a caller that records "I asked" after a send
+    that was REJECTED never asks again. That is exactly how a chooser whose
+    button labels were two characters too long became permanent silence.
+    """
     try:
         relay.notify(kind=kind, text=text, request_id=new_request_id(),
                      answers=answers, hint=hint)
+        return True
     except RelayError as exc:
         log(f"collect: notify failed: {exc}")
+        return False
 
 
 def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
@@ -139,18 +147,32 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
     fine: a tap is just another queued reply, and it names its target, so
     whichever hook collects it next can apply it.
     """
-    answers = []
+    # TWENTY characters, measured: Cliq rejects the whole message with
+    # input_maxlength_reached on the key 'label'. "claude-cliq (question)" is
+    # 22 and silently cost a chooser. The folder alone is the useful part, so
+    # what kind of thing each session wants goes in the text instead.
+    answers, lines, seen = [], [], set()
     for w in armed[:5]:
         where = (w.get("cwd") or "").rstrip("/").split("/")[-1] or "session"
+        label = where[:20]
+        while label in seen:                 # two sessions, one folder name
+            label = f"{where[:18]}·{len(seen)}"
+        seen.add(label)
         kind = "permission" if w.get("kind") == "permission" else "question"
-        answers.append({"label": f"{where} ({kind})", "value": "pick",
-                        "req": w["request_id"]})
+        answers.append({"label": label, "value": "pick", "req": w["request_id"]})
+        lines.append(f"- *{label}* — {kind}")
     more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
-    preview = item["text"][:160]
-    _notify(relay,
-            f"Which one is this for?{more}\n\n_{preview}_",
-            kind="choose", answers=answers,
-            hint="tap one — I've kept what you typed")
+    body = "\n".join(lines)
+    sent = _notify(relay,
+                   f"Which one is this for?\n\n{body}{more}\n\n"
+                   f"_{item['text'][:160]}_",
+                   kind="choose", answers=answers,
+                   hint="tap one — I've kept what you typed")
+    if not sent:
+        # Do NOT record that we asked. An unsent question must be asked again
+        # on the next fetch, not remembered as asked and never repeated.
+        log("collect: could not send the chooser — will ask again")
+        return
     spool.mark(item["id"], needs_pick=True, asked=True)
     log(f"collect: asked which of {[w['request_id'] for w in armed]} "
         f"a plain reply belongs to")

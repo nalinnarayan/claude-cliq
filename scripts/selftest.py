@@ -45,6 +45,9 @@ class FakeRelay:
         return {"messages": self.batches.pop(0) if self.batches else []}
 
     def notify(self, **kw):
+        if kw.get("kind") in getattr(self, "reject_kinds", ()):
+            from cliqlib import RelayError
+            raise RelayError('cliq 400: {"code":"input_maxlength_reached"}')
         self.sent.append(kw)
 
     def stream_ticket(self):
@@ -259,7 +262,14 @@ class Chooser(unittest.TestCase):
         ask = [m for m in relay.sent if m.get("kind") == "choose"]
         self.assertEqual(len(ask), 1, "asked exactly once")
         labels = [a["label"] for a in ask[0]["answers"]]
-        self.assertEqual(sorted(labels), ["proj-a (question)", "proj-b (question)"])
+        self.assertEqual(sorted(labels), ["proj-a", "proj-b"])
+        # TWENTY characters, measured: Cliq rejects the whole message with
+        # input_maxlength_reached beyond that, and "claude-cliq (question)"
+        # is 22 -- which cost a chooser in production.
+        for a in ask[0]["answers"]:
+            self.assertLessEqual(len(a["label"]), 20, a["label"])
+        # What each session wants belongs in the text, where there is room.
+        self.assertIn("question", ask[0]["text"])
         # Each button names its own session: that is what makes a tap
         # unambiguous by construction rather than by inference.
         self.assertEqual(sorted(a["req"] for a in ask[0]["answers"]),
@@ -272,6 +282,30 @@ class Chooser(unittest.TestCase):
         for _ in range(3):
             collect._drain(self.cfg, relay, "aaaaa")
         self.assertEqual(len([m for m in relay.sent if m.get("kind") == "choose"]), 1)
+
+    def test_a_rejected_chooser_is_asked_again_not_remembered_as_asked(self):
+        # The second half of the same production failure: the send was
+        # rejected, the code recorded "asked" anyway, and the reply was never
+        # mentioned again. Silence, permanently.
+        self.arm("aaaaa", "/x/a")
+        self.arm("bbbbb", "/x/b")
+        relay = FakeRelay([[row("1", "hello")], [], []])
+        relay.reject_kinds = ("choose",)
+        collect._drain(self.cfg, relay, "aaaaa")
+        self.assertFalse(spool.items()[0].get("asked"),
+                         "an unsent question has not been asked")
+        relay.reject_kinds = ()                      # Cliq recovers
+        collect._drain(self.cfg, relay, "aaaaa")
+        self.assertEqual(len([m for m in relay.sent if m.get("kind") == "choose"]), 1,
+                         "and is asked on the next fetch")
+
+    def test_labels_stay_distinct_when_two_sessions_share_a_folder_name(self):
+        self.arm("aaaaa", "/one/work")
+        self.arm("bbbbb", "/two/work")
+        relay = FakeRelay([[row("1", "hello")]])
+        collect._drain(self.cfg, relay, "aaaaa")
+        labels = [a["label"] for a in relay.sent[0]["answers"]]
+        self.assertEqual(len(set(labels)), 2, f"indistinguishable buttons: {labels}")
 
     def test_a_tap_delivers_the_held_text_to_the_session_named(self):
         self.arm("aaaaa", "/x/a")

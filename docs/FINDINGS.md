@@ -360,6 +360,39 @@ Tables went from five to three: `Devices`, `PairCodes`, `Pending`. `Sessions`
 and `Counters` can be dropped from the console at leisure; nothing reads or
 writes them.
 
+### Cliq button labels cap at 20 characters, and a rejected send looked asked
+
+The chooser's first real run produced nothing, and the log said why:
+
+```
+notify failed: HTTP 400: {"code":"input_maxlength_reached",
+  "message":"The size of the key 'label' has exceeded the character limit of 20."}
+collect: asked which of ['yaqbj', 'nmvxp'] a plain reply belongs to
+```
+
+`"claude-cliq (question)"` is 22 characters. Cliq rejects the **whole
+message** — not the label, not the button, the message — so no chooser
+appeared at all. `buildButtons` had been truncating to 100, which was our own
+guess with nothing behind it.
+
+The label now carries the folder alone, capped at 20, with what each session
+wants moved into the message text where there is room. Sessions sharing a
+folder name get a distinguishing suffix, since two identical buttons are worse
+than none.
+
+**The second bug is the instructive one.** Those two log lines are in the wrong
+order: the send failed, and the code then recorded that it had asked.
+`_notify` swallowed the `RelayError` and returned `None`, so `_ask_which`
+marked `asked=True` regardless — and `needs_pick` meant the reply could only
+ever be resolved by a tap that would now never be offered. One reply was
+permanently, silently stuck.
+
+`_notify` returns whether it actually sent, and nothing records "I asked"
+unless the question went out. Worth generalising: **a helper that swallows its
+errors and returns nothing teaches every caller to assume success.** The same
+helper shape had already hidden a failed ticket renewal earlier in this
+project.
+
 ### The chooser was deleted, and a commit message said otherwise
 
 Reported: *"When I swipe reply it correctly lands in that session. When I just

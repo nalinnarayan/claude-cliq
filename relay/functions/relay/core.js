@@ -81,7 +81,10 @@ async function requireDevice(store, headers) {
  */
 function buildButtons(requestId, answers, { fnName, fnOwner }) {
   return answers.slice(0, 5).map((a) => ({
-    label: String(a.label || a.value).slice(0, 100),
+    // TWENTY, measured: Cliq rejects the whole message with
+    // input_maxlength_reached on 'label' beyond that. The 100 here was our
+    // own guess and let a 22-character label through, which cost a chooser.
+    label: String(a.label || a.value).slice(0, 20),
     action: {
       type: 'invoke.function',
       data: { name: fnName, ...(fnOwner ? { owner: fnOwner } : {}) },
