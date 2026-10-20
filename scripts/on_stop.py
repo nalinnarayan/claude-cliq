@@ -30,7 +30,16 @@ def main() -> int:
     cwd = payload.get("cwd", "")
     body = H.summarize(payload.get("last_assistant_message", ""))
     if not body:
-        return 0
+        # A turn can end with nothing to show -- a slash command, or work that
+        # was all tool calls. Cliq rejects an empty message, which is why this
+        # used to just return.
+        #
+        # But returning breaks what away mode promises. The session stops, no
+        # ping is sent, nothing is logged, and the terminal reads "done" the
+        # instant it says it is waiting -- while the one moment you most want
+        # to hand it an instruction from your phone is right after turning
+        # away mode on, which is itself a turn with no message.
+        body = "_(the turn ended with nothing to show)_"
 
     # A tool call since the last block resets Claude Code's counter, so only
     # count the runs where it did not.

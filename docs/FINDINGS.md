@@ -611,6 +611,49 @@ The leader that asks is often gone before the tap arrives. That turns out not
 to matter: a tap is just another queued reply and it names its target, so
 whichever hook collects it next can apply it.
 
+### A turn with no message did not wait at all
+
+Reported as the two-session bug returning with a third session: *"it says
+already on, starts waiting, and then says done immediately."* The session
+count was a red herring — three concurrent sessions were reproduced holding
+their full window without trouble:
+
+```
+session    waited  gave up early?
+  aaaaa     30.0s  no
+  bbbbb     30.1s  no
+  ccccc     30.1s  no
+```
+
+The real cause was one line:
+
+```python
+body = H.summarize(payload.get("last_assistant_message", ""))
+if not body:
+    return 0
+```
+
+A turn that produces **no assistant text** — a slash command, or work that was
+all tool calls — exits instantly, with no ping, no block, and **nothing
+logged**. The terminal shows the hook's status flash and then "done", which
+looks exactly like the earlier giving-up bug and is a completely different
+thing.
+
+`/claude-cliq:away on` is itself such a turn, which is the cruel part: the
+moment you most want to hand a session an instruction from your phone is right
+after switching away mode on, and that was precisely the turn that would not
+wait.
+
+The guard existed because Cliq rejects an empty message. A placeholder body
+fixes that without breaking the promise away mode makes.
+
+Two things worth taking from it. **A silent early return is the hardest bug to
+report**, because the person describing it has nothing to point at and
+reaches for the nearest symptom they recognise — here, a bug fixed an hour
+earlier. And **"same error as before" deserves reproduction, not pattern
+matching**: the fix for the real cause is in a different file from the one the
+description pointed at.
+
 ### A second concurrent session gave up after ten seconds
 
 Reported, not found by testing: *"I turned away mode on from another session.
