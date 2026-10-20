@@ -360,6 +360,52 @@ Tables went from five to three: `Devices`, `PairCodes`, `Pending`. `Sessions`
 and `Counters` can be dropped from the console at leisure; nothing reads or
 writes them.
 
+### A connection name is a lease, and a per-device one degrades silently
+
+The sharpest bug of the lot, because nothing failed. The relay derived
+`connection_name` from the device's token hash, which seemed obviously right:
+stable, opaque, one per machine.
+
+It meant the **second** blocked hook could not get a ticket at all.
+
+```
+collect: no stream ticket (HTTP 500:
+  {"error":"Duplicate value for connection_name. Please give a different value"})
+  — polling instead
+collect: fetched 1 → routed to mnhgu: answer
+```
+
+Minting for a name whose subscriber session still exists is refused, and
+`close()` **preserves** that session by design. So the first hook took the
+stream, and every hook after it fell back to polling — and because the
+fallback works, the reply still arrived and nothing looked wrong. It was found
+only by reading the log of a cycle that had already succeeded.
+
+Two changes:
+
+- **The name is random per ticket**, `crypto.randomBytes(10)`, not derived
+  from anything. Nothing needs it stable — it names a connection, and the
+  ticket is what authorises. It is also better for privacy: a stable name
+  handed to access control in the clear would have re-linked devices whatever
+  the wake label did.
+- **`close()` now unsubscribes first**, deleting the session rather than
+  parking it. Parking exists so a later `-2` can resume, which this bridge
+  never does — it fetches once on arming instead — so tidying up is free.
+
+Verified: two consecutive tickets, two different names, both subscribed, same
+`wake_id` (the bell is per account, the lease is per connection).
+
+The trade accepted: with a fresh name each time, *every* connect is a first
+connect, so the transient `SESSION_EXPIRED` can appear on any cycle rather
+than only the first ever. One extra round trip, absorbed by the retry — much
+better than every second hook quietly costing a hundred times the reads.
+
+**The lesson generalises.** A fallback that works is a fallback that hides
+things. The poll path did exactly what it was built for and that is precisely
+why the stream being broken went unnoticed; `cliqctl status` should report
+which transport actually served the last reply, not merely which is
+configured.
+
 ### A ticket cannot be renewed while its session is alive
 
 ```

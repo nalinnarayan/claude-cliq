@@ -128,6 +128,20 @@ test('a ticket needs a device token and carries that account wake id', async () 
   assert.strictEqual(t.wake_id, h.published[0]);
 });
 
+test('each ticket gets a FRESH connection name', async () => {
+  // A connection name is a lease, not a label. Re-minting for a name whose
+  // session still exists is refused -- "Duplicate value for connection_name"
+  // -- and close() preserves the session on purpose. A per-device name meant
+  // the first blocked hook got the stream and every one after it silently
+  // fell back to polling.
+  const h = harness();
+  const token = await pairUser(h, 'u1', 'u1@example.com');
+  const a = await h.relay.streamTicket({ headers: bearer(token) });
+  const b = await h.relay.streamTicket({ headers: bearer(token) });
+  assert.notStrictEqual(a.wss_id, b.wss_id, 'same device, two connections');
+  assert.strictEqual(a.wake_id, b.wake_id, 'but the same bell to listen for');
+});
+
 test('the connection name reveals neither the token nor the account', async () => {
   const h = harness();
   const token = await pairUser(h, 'u1', 'u1@example.com');

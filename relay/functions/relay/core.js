@@ -337,15 +337,25 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       if (!streams || !streams.configured) {
         throw new HttpError(503, 'no Data Streams channel configured');
       }
-      // Derived from the token hash so it is stable per device and reveals
-      // nothing: the hash is already one-way, and this is one more step from
-      // it. Used only to name the connection, never to authorise anything.
+      // RANDOM per ticket, not derived from the device.
       //
-      // TWENTY characters, measured: Data Streams rejects a longer
-      // connection_name with "Please check if the length of the input is in
-      // the correct range", which names neither the field nor the limit. 21
-      // fails, 20 passes. 80 bits of SHA-256 is ample to keep devices apart.
-      const conn = sha256(`conn|${device.token_hash}`).slice(0, 20);
+      // A per-device name was the obvious choice and it is wrong: a
+      // connection name is a LEASE, not a label. Minting a second ticket for
+      // a name whose subscriber session still exists is refused with
+      // "Duplicate value for connection_name", and close() preserves that
+      // session on purpose. So the first blocked hook got the stream and
+      // every hook after it fell back to polling -- silently, because the
+      // fallback works.
+      //
+      // Nothing needs the name to be stable: it identifies a connection, and
+      // the ticket is what authorises. Random is also strictly better for
+      // privacy, since a stable name handed to access control in the clear
+      // would have re-linked devices regardless of the rotating wake label.
+      //
+      // TWENTY characters, measured: a longer connection_name is refused
+      // with "Please check if the length of the input is in the correct
+      // range", which names neither the field nor the limit. 21 fails.
+      const conn = crypto.randomBytes(10).toString('hex');
       const tp = await streams.tokenPair(conn);
       return {
         url: tp && tp.url,

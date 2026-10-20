@@ -100,9 +100,19 @@ class _Conn:
 
     def __init__(self, host: str, path: str, port: int = 443, timeout: float = 20.0):
         self.host, self.path, self.port = host, path, port
-        raw = socket.create_connection((host, port), timeout=timeout)
-        ctx = ssl.create_default_context()
-        self.sock = ctx.wrap_socket(raw, server_hostname=host)
+        try:
+            raw = socket.create_connection((host, port), timeout=timeout)
+            ctx = ssl.create_default_context()
+            self.sock = ctx.wrap_socket(raw, server_hostname=host)
+        except (OSError, ssl.SSLError) as exc:
+            # Wrapped, not left raw. A proxy that blocks wss:// raises OSError
+            # from deep inside here, and a caller that only catches WakeError
+            # would let it escape past the poll fallback and strand the hook.
+            # Retryable because a network blip and a blocked port are
+            # indistinguishable from one connect attempt; persistent failure
+            # exhausts the retries and surfaces as fatal.
+            raise WakeError(f"cannot reach {host}:{port} ({exc})",
+                            retryable=True) from exc
         self._buf = b""
         self._handshake(timeout)
 
@@ -225,7 +235,17 @@ class _Conn:
             if fin:
                 return (opcode if opcode is not None else OP_TEXT), b"".join(chunks)
 
-    def close(self) -> None:
+    def close(self, *, unsubscribe: bool = False) -> None:
+        if unsubscribe:
+            # Deletes the subscriber session rather than parking it. close()
+            # alone PRESERVES the session so a later `-2` can resume -- which
+            # this bridge never does (it fetches once on arming instead), and
+            # which leaves the connection name taken so the next ticket for it
+            # is refused. Tidying up is strictly better for us.
+            try:
+                self.send_text(json.dumps({"type": "con", "value": "unsubscribe"}))
+            except Exception:
+                pass
         try:
             self.send(OP_CLOSE, struct.pack("!H", 1000))
         except Exception:
@@ -361,4 +381,4 @@ def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
                     return got
         return None
     finally:
-        conn.close()
+        conn.close(unsubscribe=True)

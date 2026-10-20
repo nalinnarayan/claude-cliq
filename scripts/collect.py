@@ -32,6 +32,9 @@ import wake
 from cliqlib import STATE_DIR, Config, Relay, RelayError, log, new_request_id
 
 LEADER_LOCK = STATE_DIR / "fetch.lock"
+# Remembers that the stream could not be reached, so a laptop behind a proxy
+# that blocks wss:// stops paying a connect timeout on every blocked hook.
+STREAM_DOWN = STATE_DIR / "stream-down"
 
 # How long a follower waits on its own waiter file before checking whether
 # leadership has fallen vacant. Short enough that a leader dying is noticed
@@ -70,6 +73,33 @@ class _Leadership:
             except Exception:
                 pass
         return False
+
+
+def _stream_available(cfg: Config) -> bool:
+    """False while the stream is in its cooldown after a failure."""
+    try:
+        failed_at = float(STREAM_DOWN.read_text().strip())
+    except Exception:
+        return True
+    if time.time() - failed_at < cfg.stream_retry_after_seconds:
+        return False
+    STREAM_DOWN.unlink(missing_ok=True)      # cooldown served; try again
+    return True
+
+
+def _mark_stream_down(reason: str) -> None:
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        STREAM_DOWN.write_text(str(time.time()))
+    except Exception:
+        pass
+    log(f"collect: stream marked unusable ({reason}); polling until it is retried")
+
+
+def _mark_stream_up() -> None:
+    if STREAM_DOWN.exists():
+        STREAM_DOWN.unlink(missing_ok=True)
+        log("collect: stream reachable again")
 
 
 def _notify(relay: Relay, text: str, kind: str = "ack") -> None:
@@ -171,6 +201,8 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
     if got:
         return got
 
+    _mark_stream_up()               # we are connected, so clear any cooldown
+
     def on_wake(body):
         if not isinstance(body, dict) or body.get("w") != wake_id:
             return None                 # another account's bell
@@ -198,12 +230,15 @@ def wait_for(cfg: Config, relay: Relay, request_id: str,
     while time.time() < deadline:
         with _Leadership() as leading:
             if leading:
+                use_stream = cfg.transport == "stream" and _stream_available(cfg)
                 try:
-                    got = _lead(cfg, relay, request_id, deadline)
+                    got = (_lead(cfg, relay, request_id, deadline) if use_stream
+                           else _poll_until(cfg, relay, request_id, deadline))
                 except wake.WakeError as exc:
-                    # Fatal stream errors must not strand the hook: fall back
-                    # to polling the relay for the rest of the window.
-                    log(f"collect: stream unusable ({exc}) — polling instead")
+                    # Never strand the hook on a stream problem. Polling is
+                    # more expensive, not broken, and the cooldown stops the
+                    # next hook rediscovering the same blocked port.
+                    _mark_stream_down(str(exc))
                     got = _poll_until(cfg, relay, request_id, deadline)
                 if got:
                     return got

@@ -185,5 +185,77 @@ class Routing(unittest.TestCase):
                          "still recoverable by the next leader")
 
 
+class Transport(unittest.TestCase):
+    """The escape hatch has to be real, not just configurable."""
+
+    def setUp(self):
+        clean()
+
+    def arm(self, rid):
+        waiter.arm(rid, session_id="s", kind="finished", cwd="/tmp",
+                   expires_at=time.time() + 60)
+
+    def test_poll_mode_never_opens_the_stream(self):
+        # The whole point of the hatch: a surprise bill or a blocked port must
+        # be escapable without a working stream to escape with.
+        cfg = Config(transport="poll", poll_fallback_seconds=0.01)
+        self.arm("aaaaa")
+        relay = FakeRelay([[row("1", "polled", request_id="aaaaa")]])
+        relay.stream_ticket = lambda: self.fail("poll mode asked for a ticket")
+        got = collect.wait_for(cfg, relay, "aaaaa", time.time() + 5)
+        self.assertEqual(got["text"], "polled")
+
+    def test_an_unreachable_stream_falls_back_instead_of_stranding(self):
+        # A proxy blocking wss:// raises OSError from the socket, which used
+        # to escape every handler and release the session to the terminal.
+        cfg = Config(transport="stream", poll_fallback_seconds=0.01)
+        self.arm("aaaaa")
+        relay = FakeRelay([[], [row("1", "fell back", request_id="aaaaa")]])
+        import wake as _wake
+        original = _wake.listen
+        _wake.listen = lambda *a, **k: (_ for _ in ()).throw(
+            _wake.WakeError("cannot reach host:443 (blocked)"))
+        try:
+            got = collect.wait_for(cfg, relay, "aaaaa", time.time() + 5)
+        finally:
+            _wake.listen = original
+        self.assertEqual(got["text"], "fell back")
+
+    def test_a_failed_stream_is_not_retried_immediately(self):
+        # Otherwise every blocked hook pays the connect timeout over again.
+        cfg = Config(transport="stream", stream_retry_after_seconds=600)
+        self.assertTrue(collect._stream_available(cfg))
+        collect._mark_stream_down("blocked")
+        self.assertFalse(collect._stream_available(cfg))
+        # ...but the cooldown expires rather than latching forever.
+        self.assertTrue(collect._stream_available(
+            Config(stream_retry_after_seconds=0)))
+
+    def test_connecting_clears_the_cooldown(self):
+        collect._mark_stream_down("blocked")
+        collect._mark_stream_up()
+        self.assertTrue(collect._stream_available(Config()))
+
+    def test_an_unknown_transport_falls_back_to_polling(self):
+        import os as _os
+        from cliqlib import load_config
+        _os.environ["CLAUDE_CLIQ_TRANSPORT"] = "carrier-pigeon"
+        try:
+            self.assertEqual(load_config().transport, "poll")
+        finally:
+            del _os.environ["CLAUDE_CLIQ_TRANSPORT"]
+
+    def test_the_env_var_overrides_the_config_file(self):
+        # Flipping the hatch must not itself require a working stream, so it
+        # has to be settable without editing a file the laptop may not reach.
+        import os as _os
+        from cliqlib import load_config
+        _os.environ["CLAUDE_CLIQ_TRANSPORT"] = "poll"
+        try:
+            self.assertEqual(load_config().transport, "poll")
+        finally:
+            del _os.environ["CLAUDE_CLIQ_TRANSPORT"]
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

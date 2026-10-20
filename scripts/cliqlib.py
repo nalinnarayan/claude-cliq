@@ -94,6 +94,10 @@ class Config:
     # actually happened. Enforced here because the relay-side counter cost two
     # Data Store writes per message and there is nowhere cheap to put it.
     local_sends_per_min: int = 20
+    # After the stream fails, don't try it again for this long. A proxy that
+    # blocks wss:// fails the same way every time, and paying a connect
+    # timeout on every blocked hook is a slow, confusing way to discover it.
+    stream_retry_after_seconds: int = 600
     # A reply older than this is refused rather than delivered. Without the
     # daemon a row can sit in the relay for its whole 24h TTL, and route()
     # with one armed waiter would hand a reply typed hours ago to a brand-new
