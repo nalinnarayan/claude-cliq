@@ -69,7 +69,12 @@ def main() -> int:
                 "touching any files — the limit for back-and-forth here. "
                 "Carry on at the terminal; working sessions aren't capped.")
     else:
-        hint = ""
+        # notify-only. Say so on every message rather than waiting for someone
+        # to reply into the void: a reply here reaches nothing, and the person
+        # has no way of knowing that from a message that looks identical to
+        # one they could answer.
+        hint = ("notify-only — replying here won't reach this session. "
+                "Run `/claude-cliq:away on` at the terminal to change that.")
 
     H.send(relay, kind="finished", text=text, request_id=rid,
            session_id=session_id, cwd=cwd, expects_reply=armed, hint=hint)

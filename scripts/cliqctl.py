@@ -76,6 +76,25 @@ AWAY_HELP = {
 }
 
 
+def _discard_queued_replies() -> None:
+    """Drop anything queued from before the session started waiting."""
+    cfg = load_config()
+    if not cfg.paired:
+        return
+    try:
+        msgs = Relay(cfg).poll(since=0, wait=0, timeout=30).get("messages", [])
+    except RelayError as exc:
+        print(f"\n(couldn't check for earlier replies: {exc})")
+        return
+    if not msgs:
+        return
+    print(f"\nDiscarded {len(msgs)} earlier repl{'y' if len(msgs) == 1 else 'ies'} "
+          f"sent while nothing was listening:")
+    for m in msgs[:3]:
+        print(f"  - {(m.get('text') or '')[:70]}")
+    print("Send them again now that replies will reach the session.")
+
+
 def cmd_away(args) -> int:
     if args.state is None:
         current = mode()
@@ -90,8 +109,17 @@ def cmd_away(args) -> int:
         print(f"Unknown mode {args.state!r}. Pick one of: "
               + ", ".join(f"{m} ({AWAY_HELP[m]})" for m in MODES))
         return 2
+    previous = mode()
     set_mode(wanted)
     on = wanted == "on"
+
+    # A reply typed while nothing was listening is still sitting in the relay,
+    # and it is NOT harmless: once a session starts waiting, an unbound reply
+    # goes to whichever single waiter is armed -- so yesterday's "yes" could
+    # answer tomorrow's question. Clear the queue when the waiting mode is
+    # switched on, and say what was dropped.
+    if on and previous != "on":
+        _discard_queued_replies()
     if wanted == "notify":
         print("Notify-only — Claude will tell you what happened in Cliq and "
               "never hold the terminal.")
