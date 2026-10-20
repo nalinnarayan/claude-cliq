@@ -35,6 +35,13 @@ LEADER_LOCK = STATE_DIR / "fetch.lock"
 # Remembers that the stream could not be reached, so a laptop behind a proxy
 # that blocks wss:// stops paying a connect timeout on every blocked hook.
 STREAM_DOWN = STATE_DIR / "stream-down"
+# Which transport actually SERVED the last reply. Reporting the configured one
+# is close to useless: the poll fallback works, so a broken stream looks
+# exactly like a working one until someone reads the log. That is how a
+# per-device connection name silently cost a hundred times the reads.
+SERVED_PATH = STATE_DIR / "served.json"
+
+_mode = "?"
 
 # How long a follower waits on its own waiter file before checking whether
 # leadership has fallen vacant. Short enough that a leader dying is noticed
@@ -178,6 +185,11 @@ def _drain(cfg: Config, relay: Relay, want: str) -> dict | None:
     rows = res.get("messages", [])
     if rows:
         log(f"collect: fetched {len(rows)}")
+        try:
+            SERVED_PATH.write_text(json.dumps({"mode": _mode, "ts": time.time(),
+                                               "count": len(rows)}))
+        except Exception:
+            pass
         spool.add(rows)                 # durable BEFORE anything is routed
     return _route_spooled(cfg, relay, want)
 
@@ -201,6 +213,8 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
     if got:
         return got
 
+    global _mode
+    _mode = "stream"
     _mark_stream_up()               # we are connected, so clear any cooldown
 
     def on_wake(body):
@@ -263,6 +277,8 @@ def _poll_until(cfg: Config, relay: Relay, want: str,
     differs. Keeping the daemon for this would have meant keeping everything
     the daemon dragged with it.
     """
+    global _mode
+    _mode = "poll"
     while time.time() < deadline:
         got = _drain(cfg, relay, want)
         if got:

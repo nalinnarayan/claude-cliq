@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 import socket
 import sys
 from pathlib import Path
@@ -88,6 +89,11 @@ def cmd_away(args) -> int:
     return 0
 
 
+def cfg_state_dir() -> str:
+    from cliqlib import STATE_DIR
+    return str(STATE_DIR)
+
+
 def cmd_status(args) -> int:
     cfg = load_config()
     print(f"relay      : {cfg.relay_url or '(unset)'}")
@@ -98,6 +104,18 @@ def cmd_status(args) -> int:
           ("  (doorbell; ~1 read per reply)" if cfg.transport == "stream"
            else f"  (polling every {cfg.poll_fallback_seconds:.0f}s)"))
     print(f"wait window: {cfg.wait_seconds}s")
+    # What actually served the last reply, which is the question worth asking:
+    # the poll fallback works, so a broken stream reads as a healthy one.
+    try:
+        import json as _json
+        from cliqlib import STATE_DIR as _SD
+        d = _json.loads((_SD / "served.json").read_text())
+        mins = int((time.time() - float(d["ts"])) // 60)
+        print(f"last served: {d['mode']} ({d.get('count', '?')} message(s), {mins}m ago)")
+    except Exception:
+        print("last served: nothing collected yet")
+    if (__import__("pathlib").Path(cfg_state_dir()) / "stream-down").exists():
+        print("stream     : in cooldown after a failure — replies are polling")
     print(f"max replies: {cfg.max_block_streak} in a row without a tool call")
     cap = os.environ.get("CLAUDE_CODE_STOP_HOOK_BLOCK_CAP")
     print(f"block cap  : {cap or 'default (8) — run pair again, then restart'}")
