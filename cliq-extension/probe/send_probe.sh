@@ -14,8 +14,11 @@ URL="$BASE/api/v3/bots/$CLIQ_BOT_NAME/messages?zapikey=$CLIQ_ZAPIKEY&user_ids=$W
 
 case "${1:-form}" in
 form)
-  # ~3KB of filler, the size a four-question form spec would really be.
-  FILLER=$(python3 -c "print('x' * 3000)")
+  # 280 characters: just under the measured cap. `arguments` is limited to
+  # 300 in total, which a four-question form spec (~1.2KB) cannot fit -- so
+  # the spec cannot ride in the button and something must serve it at tap
+  # time. Measured by sending 3000 and getting input_maxlength_reached.
+  FILLER=$(python3 -c "print('x' * 240)")
   BODY=$(FILLER="$FILLER" OWNER="${CLIQ_FUNCTION_OWNER:-}" python3 - <<'PY'
 import json, os
 btn = {"label": "Answer",

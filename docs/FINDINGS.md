@@ -543,6 +543,38 @@ with its name and pending question, so the overflow is navigable rather than
 mysterious — that property is now load-bearing and should not be traded away
 for a terser message.
 
+### A bot-message button does open a form — but `arguments` cap at 300
+
+The gate for the AskUserQuestion feature, and it passes: tapping a button on a
+bot DM opened a Cliq form. Zoho's docs list "Clicking a button" as a form
+trigger and a community thread asks exactly this without an answer, so it was
+worth confirming for a bot DM specifically rather than inferring.
+
+The same probe failed first, usefully:
+
+```
+{"code":"input_maxlength_reached",
+ "message":"The size of the key 'arguments' has exceeded the character limit of 300."}
+```
+
+**Button `arguments` are limited to 300 characters in total.** A four-question
+form spec is roughly 1.2KB, so **the spec cannot ride in the button**. That
+settles a design question in the hard direction: something has to serve the
+form when the button is tapped, which means the relay holds the questions
+until then.
+
+That is the storage this project deliberately avoided once before -- it puts
+message content server-side and breaks the property that `Pending.body` is
+deleted on delivery unless the user is debug-allowlisted. It is now forced
+rather than chosen, so the question becomes how to hold it least badly:
+delete on first fetch, a short TTL, and the same `retain` discipline the
+existing queue uses.
+
+Worth noting the probe was built to test a 3KB argument precisely because
+carrying the spec in the button was the plan. Testing the assumption that
+would have been cheapest to assume is what caught it before any of the design
+rested on it.
+
 ### Cliq button labels cap at 20 characters, and a rejected send looked asked
 
 The chooser's first real run produced nothing, and the log said why:
