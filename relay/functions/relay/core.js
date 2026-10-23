@@ -13,6 +13,7 @@
 const crypto = require('crypto');
 const { splitTables } = require('./format');
 const askform = require('./askform');
+const upload = require('./upload');
 
 // Outbound messages end with "(id xxxxx)", so a swipe-reply hands that text
 // straight back in replied_message.text. Pulling the id out of it binds the
@@ -103,7 +104,7 @@ function buildButtons(requestId, answers, { fnName, fnOwner, askFnName }) {
   }));
 }
 
-function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now,
+function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null, now = Date.now,
                        fnName = 'claudeCliqAction', fnOwner = '',
                        askFnName = 'claudeCliqAskForm',
                        askSubmitFnName = 'claudeCliqAskSubmit',
@@ -150,6 +151,23 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
     } catch (err) {
       console.error('wake publish failed (reply is still queued)', err && err.message);
     }
+  }
+
+  /**
+   * Where one account's attachment for one message lives.
+   *
+   * Derived, never stored -- and the account is part of what is hashed. That
+   * is the whole access control: `/file-url` derives the key from the
+   * requesting DEVICE's account, so asking for someone else's message id
+   * produces a key in the asker's own namespace, which holds nothing. No row
+   * lookup is needed, which matters because the Pending row is deleted the
+   * moment the reply is delivered -- before the laptop asks for the file.
+   */
+  function fileKeyFor(cliqUser, messageId) {
+    if (!streamSecret || !cliqUser || !messageId) return '';
+    const h = crypto.createHmac('sha256', streamSecret)
+      .update(`file|${cliqUser}|${messageId}`).digest('hex').slice(0, 40);
+    return `inbound/${h}`;
   }
 
   function wakeIdFor(cliqUser) {
@@ -322,8 +340,19 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         throw new HttpError(403, 'bad secret');
       }
       const cliqUser = String(body.cliq_user || '').trim();
-      const text = String(body.text || '').trim();
-      if (!cliqUser || !text) throw new HttpError(400, 'cliq_user and text required');
+      let text = String(body.text || '').trim();
+      // An attachment's caption may be empty -- the file IS the message -- so
+      // a name counts as content in the way text normally does.
+      const fileName = upload.safeName(body.file_name || '', '');
+      if (!cliqUser || (!text && !fileName)) {
+        throw new HttpError(400, 'cliq_user and text required');
+      }
+      if (fileName) {
+        // Set HERE rather than by the handler, so a caption that happens to
+        // contain the marker cannot forge one: withMarker strips any existing
+        // marker from the text before appending the real one.
+        text = upload.withMarker(text, fileName);
+      }
 
       // Cliq does not redeliver, but a handler may fire twice on a retry of
       // its own; keying on the Cliq message id makes this idempotent.
@@ -438,6 +467,76 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
      * device presenting a valid device token. Channel access control adds
      * nothing on top -- measured, see docs/FINDINGS.md.
      */
+    /**
+     * POST /cliq-file -- the bot's handler uploading an attachment's bytes.
+     *
+     * The bytes arrive from Deluge's `invokeurl ... files:`, which is the only
+     * durable way to get them: a Cliq attachment URL is transient and expires
+     * within minutes, and the laptop holds no credential that could read one.
+     *
+     * The reply text goes through /cliq-inbound as it always has -- this is a
+     * separate addendum bound to the same message id, so the proven text path
+     * is untouched and a failed upload costs the picture, never the reply.
+     */
+    async cliqFile({ headers, query, body }) {
+      const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
+      if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
+        throw new HttpError(403, 'bad secret');
+      }
+      if (!files || !files.configured) throw new HttpError(503, 'no bucket configured');
+
+      const cliqUser = String((query && query.u) || '').trim();
+      const messageId = String((query && query.mid) || '').trim();
+      if (!cliqUser || !messageId) throw new HttpError(400, 'u and mid required');
+
+      const key = fileKeyFor(cliqUser, messageId);
+      if (!key) throw new HttpError(503, 'no stream secret, so no file key');
+
+      const got = upload.unwrapUpload(headers['content-type'], body);
+      if (!got.bytes.length) throw new HttpError(400, 'no file in the upload');
+
+      await files.put(key, got.bytes);
+      // `framing` and `sniff` are returned because the handler logs nothing
+      // and this is the only place the shape Deluge actually sends is visible.
+      return { ok: true, bytes: got.bytes.length, framing: got.framing,
+               kind: upload.sniff(got.bytes) || got.contentType || '' };
+    },
+
+    /**
+     * POST /file-url -- the laptop collecting an attachment.
+     *
+     * The key is derived from the DEVICE's own account, so `message_id` is
+     * untrusted input that can only ever name something in the caller's own
+     * namespace. `done` deletes it once the download has succeeded.
+     */
+    async fileUrl({ headers, body }) {
+      const device = await requireDevice(store, headers);
+      if (!files || !files.configured) throw new HttpError(503, 'no bucket configured');
+
+      const messageId = String((body && body.message_id) || '').trim();
+      if (!messageId) throw new HttpError(400, 'message_id required');
+      const key = fileKeyFor(device.cliq_user, messageId);
+      if (!key) throw new HttpError(503, 'no stream secret, so no file key');
+
+      if (body && body.done) {
+        await files.remove(key);
+        return { ok: true, deleted: true };
+      }
+      const url = await files.signedGet(key);
+      if (!url) throw new HttpError(404, 'no file for that message');
+      return { url, expires_in: 600 };
+    },
+
+    /** POST /files-check -- does the bucket exist? Saves a console trip. */
+    async filesCheck({ headers }) {
+      const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
+      if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
+        throw new HttpError(403, 'bad secret');
+      }
+      if (!files || !files.configured) return { configured: false };
+      return { configured: true, bucket: files.bucketName, ...(await files.check()) };
+    },
+
     async streamTicket({ headers }) {
       const device = await requireDevice(store, headers);
       if (!streams || !streams.configured) {

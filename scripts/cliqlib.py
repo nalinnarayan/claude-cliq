@@ -414,6 +414,21 @@ class Relay:
         """
         return self._request("/stream-ticket", {}, timeout=30)
 
+    # -- attachments -----------------------------------------------------
+    def file_url(self, message_id: str) -> str:
+        """A short-lived download URL for the file that came with a reply.
+
+        The relay derives the object's key from THIS DEVICE's account, so a
+        message id is only ever able to name something in our own namespace.
+        """
+        return self._request("/file-url", {"message_id": message_id},
+                             timeout=20).get("url", "")
+
+    def file_done(self, message_id: str) -> None:
+        """Say the download succeeded, so the relay can drop the object."""
+        self._request("/file-url", {"message_id": message_id, "done": True},
+                      timeout=20)
+
     def poll(self, since: float, wait: int | None = None,
              timeout: int | None = None) -> dict:
         """One fetch. Returns {'messages': [...], 'now': <epoch>}.

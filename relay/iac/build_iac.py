@@ -36,6 +36,7 @@ ENV_PLACEHOLDERS = {
     "RELAY_INBOUND_SECRET": "",
     "DEBUG_USERS": "",
     "POLL_TICK_MS": "3000",
+    "STRATUS_BUCKET": "",
 }
 
 

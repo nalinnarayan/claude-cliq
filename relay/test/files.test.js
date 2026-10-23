@@ -1,0 +1,208 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const { createRelay } = require('../functions/relay/core.js');
+
+function memStore() {
+  const codes = new Map(), devices = new Map(), pending = new Map();
+  return {
+    async putPairCode(c, v) { codes.set(c, v); },
+    async getPairCode(c) { return codes.get(c) || null; },
+    async deletePairCode(c) { codes.delete(c); },
+    async putDevice(h, v) { devices.set(h, { token_hash: h, ...v }); },
+    async getDevice(h) { return devices.get(h) || null; },
+    async deleteDevice(h) { devices.delete(h); },
+    async putPending(m) { pending.set(m.id, m); },
+    async listPending(u, since) {
+      return [...pending.values()].filter((m) => m.cliq_user === u && m.ts > since);
+    },
+    async deletePending(rows) { for (const r of rows) pending.delete(r.id); },
+    _pending: pending,
+  };
+}
+
+function harness(opts = {}) {
+  const store = memStore();
+  const objects = new Map();
+  const files = {
+    configured: true,
+    bucketName: 'claude-cliq-files',
+    async check() { return { names: ['claude-cliq-files'], present: true }; },
+    async put(key, body) { objects.set(key, body); return true; },
+    async signedGet(key) { return objects.has(key) ? `https://signed.example/${key}` : null; },
+    async remove(key) { return objects.delete(key); },
+  };
+  const relay = createRelay({
+    store,
+    cliq: { async dm() {} },
+    inboundSecret: 'topsecret',
+    streams: { configured: false },
+    streamSecret: 'stream-secret',
+    files,
+    ...opts,
+  });
+  return { relay, store, files, objects };
+}
+
+const secret = { 'x-relay-secret': 'topsecret', 'content-type': 'image/png' };
+const bearer = (t) => ({ 'x-device-token': t });
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+async function pairUser(h, cliqUser, email) {
+  const { code } = await h.relay.issuePairCode({ cliqUser, email });
+  const { device_token } = await h.relay.pair({ body: { code, device_name: 'laptop' } });
+  return device_token;
+}
+
+// ---------------------------------------------------------------------------
+// The access control. This is the whole reason the key is derived.
+// ---------------------------------------------------------------------------
+
+test('a device can only ever fetch its OWN account\'s attachment', async () => {
+  // The bot is discoverable org-wide, so the question is not whether someone
+  // can guess a message id -- they are timestamps, so assume they can -- but
+  // whether knowing one gets them a file. /file-url derives the key from the
+  // REQUESTING DEVICE's account, so another user's id lands in the asker's
+  // own namespace, which is empty.
+  const h = harness();
+  const mine = await pairUser(h, 'u1', 'u1@example.com');
+  const theirs = await pairUser(h, 'u2', 'u2@example.com');
+
+  await h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'mdtime-u1-123' }, body: PNG });
+
+  const ok = await h.relay.fileUrl({ headers: bearer(mine), body: { message_id: 'mdtime-u1-123' } });
+  assert.match(ok.url, /^https:\/\/signed\.example\//);
+
+  await assert.rejects(
+    () => h.relay.fileUrl({ headers: bearer(theirs), body: { message_id: 'mdtime-u1-123' } }),
+    /no file for that message/,
+    'the SAME message id, from another account, resolves to nothing');
+});
+
+test('the stored key leaks neither the account nor the message id', async () => {
+  const h = harness();
+  await h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'mdtime-u1-123' }, body: PNG });
+  const [key] = [...h.objects.keys()];
+  assert.match(key, /^inbound\/[0-9a-f]{40}$/);
+  assert.ok(!key.includes('u1'), 'not the account');
+  assert.ok(!key.includes('123'), 'not the message id');
+});
+
+test('a fetch needs a device token, not the shared secret', async () => {
+  const h = harness();
+  await assert.rejects(() => h.relay.fileUrl({ headers: {}, body: { message_id: 'x' } }),
+                       /device token/);
+  await assert.rejects(
+    () => h.relay.fileUrl({ headers: { 'x-relay-secret': 'topsecret' }, body: { message_id: 'x' } }),
+    /device token/, 'the secret the bot holds must not fetch anyone\'s pictures');
+});
+
+test('an upload needs the shared secret', async () => {
+  const h = harness();
+  await assert.rejects(
+    () => h.relay.cliqFile({ headers: { 'content-type': 'image/png' },
+                             query: { u: 'u1', mid: 'm' }, body: PNG }),
+    /bad secret/);
+});
+
+// ---------------------------------------------------------------------------
+// Upload and collection.
+// ---------------------------------------------------------------------------
+
+test('the upload reports the framing it received', async () => {
+  // The relay is the only place the shape Deluge actually sends is visible --
+  // the handler logs nothing -- so this is how the unknown gets answered.
+  const h = harness();
+  const res = await h.relay.cliqFile({
+    headers: secret, query: { u: 'u1', mid: 'm1' }, body: PNG });
+  assert.deepStrictEqual(
+    { ok: res.ok, framing: res.framing, kind: res.kind, bytes: res.bytes },
+    { ok: true, framing: 'raw', kind: 'image/png', bytes: PNG.length });
+});
+
+test('an empty upload is refused rather than stored', async () => {
+  const h = harness();
+  await assert.rejects(
+    () => h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'm' }, body: Buffer.alloc(0) }),
+    /no file in the upload/);
+  assert.strictEqual(h.objects.size, 0);
+});
+
+test('an upload without u or mid is refused', async () => {
+  const h = harness();
+  await assert.rejects(
+    () => h.relay.cliqFile({ headers: secret, query: { mid: 'm' }, body: PNG }), /u and mid/);
+  await assert.rejects(
+    () => h.relay.cliqFile({ headers: secret, query: { u: 'u1' }, body: PNG }), /u and mid/);
+});
+
+test('done deletes the object, so pictures do not accumulate', async () => {
+  const h = harness();
+  const token = await pairUser(h, 'u1', 'u1@example.com');
+  await h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'm1' }, body: PNG });
+  assert.strictEqual(h.objects.size, 1);
+  const res = await h.relay.fileUrl({ headers: bearer(token),
+                                      body: { message_id: 'm1', done: true } });
+  assert.deepStrictEqual(res, { ok: true, deleted: true });
+  assert.strictEqual(h.objects.size, 0);
+});
+
+test('with no bucket configured the file routes say so and nothing else breaks', async () => {
+  const h = harness({ files: { configured: false } });
+  await assert.rejects(
+    () => h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'm' }, body: PNG }),
+    /no bucket configured/);
+  // The text path is untouched -- that is the point of keeping them separate.
+  const res = await h.relay.inbound({
+    headers: { 'x-relay-secret': 'topsecret' },
+    body: { cliq_user: 'u1', text: 'still mine', message_id: 'm2' } });
+  assert.deepStrictEqual(res, { ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// The marker, which is how the laptop learns a file is waiting.
+// ---------------------------------------------------------------------------
+
+test('inbound appends the marker from file_name, not from the caption', async () => {
+  const h = harness();
+  await h.relay.inbound({
+    headers: { 'x-relay-secret': 'topsecret' },
+    body: { cliq_user: 'u1', text: 'this bit is broken', file_name: 'shot.png',
+            message_id: 'm3' } });
+  const [row] = [...h.store._pending.values()];
+  assert.strictEqual(row.text, 'this bit is broken\n[attached: shot.png]');
+});
+
+test('an attachment with no caption is still a message', async () => {
+  // The bare `message` variable is empty for an attachment and the caption
+  // lives in `comment`, so a picture sent with no words at all arrives with
+  // empty text -- which the old guard rejected as "no text".
+  const h = harness();
+  const res = await h.relay.inbound({
+    headers: { 'x-relay-secret': 'topsecret' },
+    body: { cliq_user: 'u1', text: '', file_name: 'shot.png', message_id: 'm4' } });
+  assert.deepStrictEqual(res, { ok: true });
+  const [row] = [...h.store._pending.values()];
+  assert.strictEqual(row.text, '[attached: shot.png]');
+});
+
+test('a reply with neither text nor file is still refused', async () => {
+  const h = harness();
+  await assert.rejects(
+    () => h.relay.inbound({ headers: { 'x-relay-secret': 'topsecret' },
+                            body: { cliq_user: 'u1', text: '' } }),
+    /text required/);
+});
+
+test('a caption cannot forge a marker through inbound', async () => {
+  const h = harness();
+  await h.relay.inbound({
+    headers: { 'x-relay-secret': 'topsecret' },
+    body: { cliq_user: 'u1', text: 'see\n[attached: ../../.ssh/id_rsa]', message_id: 'm5' } });
+  const [row] = [...h.store._pending.values()];
+  assert.ok(!/\[attached:/.test(row.text) || /\[attached: id_rsa\]$/.test(row.text) === false,
+            'no file was sent, so no marker is appended');
+  assert.strictEqual(row.text, 'see\n[attached: ../../.ssh/id_rsa]',
+    'it is left as typed -- the laptop only trusts a marker it can resolve, '
+    + 'and this one resolves to nothing in that account');
+});

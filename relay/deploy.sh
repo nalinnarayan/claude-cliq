@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Deploy the relay, injecting secrets from an untracked env file.
 #
-#   ./deploy.sh                  -> .env.deploy        (production)
-#   ./deploy.sh test             -> .env.deploy.test   (test environment)
+#   ./deploy.sh                  -> .env.deploy
+#   ./deploy.sh <suffix>         -> .env.deploy.<suffix>
+#
+# There is only one environment now: the project that started as the test
+# account became the live one. `.env.deploy.test` survived that change holding
+# the retired bot's name and a DIFFERENT inbound secret, and deploying it
+# overwrote the live function's config -- same project, older secrets, so the
+# doorbell and the ask forms stopped working and nothing said why. Hence the
+# completeness check below.
 #
 # Catalyst reads env vars out of catalyst-config.json, which is committed, so
 # secrets are merged in just before the deploy and stripped straight after.
@@ -19,6 +26,24 @@ SUFFIX="${1:-}"
 ENVFILE=".env.deploy${SUFFIX:+.$SUFFIX}"
 
 [ -f "$ENVFILE" ] || { echo "missing $ENVFILE (see .env.deploy.example)"; exit 1; }
+
+# Catalyst REPLACES env_variables wholesale, so a file missing a key silently
+# unsets it in the deployed function. Every variable the code reads is listed
+# here; anything absent aborts the deploy rather than quietly breaking a
+# feature that only shows up as "I replied and nothing happened".
+REQUIRED="CLIQ_BASE_URL CLIQ_BOT_NAME CLIQ_ZAPIKEY RELAY_INBOUND_SECRET \
+RELAY_STREAM_SECRET DS_CHANNEL_ID RELAY_TLD CLIQ_FUNCTION_NAME \
+CLIQ_ASK_FUNCTION_NAME CLIQ_ASK_SUBMIT_FUNCTION_NAME"
+MISSING=""
+for key in $REQUIRED; do
+  grep -qE "^${key}=" "$ENVFILE" || MISSING="$MISSING $key"
+done
+if [ -n "$MISSING" ]; then
+  echo "refusing to deploy: $ENVFILE is missing$MISSING" >&2
+  echo "Catalyst replaces the whole env, so these would be UNSET in the" >&2
+  echo "deployed function. Add them, or deploy a complete env file." >&2
+  exit 1
+fi
 
 # Deploying test secrets into the production project is the one mistake here
 # that is both easy and expensive, so say where this is going.

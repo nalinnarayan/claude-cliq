@@ -16,6 +16,7 @@ const { createStore } = require('./store-datastore');
 const { createCliq } = require('./cliq');
 const { runSelftest } = require('./selftest');
 const { createStreams } = require('./streams');
+const { createFiles, MAX_BYTES } = require('./stratus');
 
 const app = express();
 app.use(express.json({ limit: '256kb' }));
@@ -48,6 +49,9 @@ function relayFor(req) {
     // Derives each account's wake label. Not a credential a client ever
     // holds -- it only has to be stable and secret to the relay.
     streamSecret: process.env.RELAY_STREAM_SECRET || '',
+    // Attachment storage. Absent STRATUS_BUCKET the file routes answer 503
+    // and everything else carries on exactly as before.
+    files: createFiles({ req, bucketName: process.env.STRATUS_BUCKET || '' }),
   });
 }
 
@@ -76,6 +80,15 @@ app.post('/notify', route((r, req) => r.notify({ headers: req.headers, body: req
 app.post('/peek',   route((r, req) => r.peek({ headers: req.headers })));
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
 app.post('/stream-ticket', route((r, req) => r.streamTicket({ headers: req.headers })));
+app.post('/file-url',    route((r, req) => r.fileUrl({ headers: req.headers, body: req.body })));
+app.post('/files-check', route((r, req) => r.filesCheck({ headers: req.headers })));
+// The ONE route that is not JSON: Deluge uploads an attachment's bytes here.
+// express.json() above leaves a non-JSON content type alone, so the body is
+// still unread by the time this raw parser sees it. `type: '*/*'` because what
+// Deluge sends is the thing being discovered -- unwrapUpload handles either.
+app.post('/cliq-file',
+  express.raw({ type: '*/*', limit: MAX_BYTES }),
+  route((r, req) => r.cliqFile({ headers: req.headers, query: req.query, body: req.body })));
 // Both are called by the bot's Deluge functions, secret-gated inside core.
 app.post('/ask-form',   route((r, req) => r.askForm({ headers: req.headers, body: req.body })));
 app.post('/ask-submit', route((r, req) => r.askSubmit({ headers: req.headers, body: req.body })));

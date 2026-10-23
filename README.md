@@ -145,7 +145,7 @@ credential the whole deployment needs.
 
 ### 3. Catalyst
 
-A new dedicated project. Create the five Data Store tables defined in
+A new dedicated project. Create the three Data Store tables defined in
 `relay/schema.json` — the column objects there are in exactly the shape the
 Catalyst MCP's `Create_Column` tool expects, so they can be applied directly or
 copied into the console:
@@ -154,9 +154,11 @@ copied into the console:
 | --- | --- |
 | `Devices` | one row per paired laptop, keyed by SHA-256 of its token |
 | `PairCodes` | short-lived one-time codes from the welcome handler |
-| `Pending` | replies waiting for a long-poll; deleted on delivery |
-| `Sessions` | the last session each user was pinged about |
-| `Counters` | the per-minute send budget |
+| `Pending` | replies waiting to be collected; deleted on delivery |
+
+`Sessions` and `Counters` went with the polling daemon — the first was only
+ever read to label a notification, and the second cost an UPDATE per message
+against the tightest free tier of the lot.
 
 Data Store rather than NoSQL for three reasons: the queries are plain ZCQL and
 far easier to verify, rows are inspectable in the console when someone reports a
@@ -174,7 +176,28 @@ CLIQ_ZAPIKEY           the webhook token from step 2
 CLIQ_BASE_URL          https://cliq.zoho.com   (or .in for that data centre)
 RELAY_INBOUND_SECRET   a long random string, also pasted into both handlers
 DEBUG_USERS            your own Cliq user id, comma separated
+STRATUS_BUCKET         bucket for forwarded images (see below); may be empty
 ```
+
+`deploy.sh` refuses to deploy an env file that is missing any variable the code
+reads. Catalyst **replaces** `env_variables` wholesale, so a short file silently
+unsets the rest — which is how an obsolete `.env.deploy.test` once overwrote the
+live function's secret and broke the doorbell with nothing to show for it.
+
+#### Images from Cliq
+
+To forward attachments, create a Stratus bucket named `claude-cliq-files` in
+the console — **Stratus has no CLI and no MCP tool, so this is console-only** —
+and set `STRATUS_BUCKET` to its name. Check it landed without opening the
+console again:
+
+```sh
+curl -s -X POST "$RELAY/files-check" -H "X-Relay-Secret: $RELAY_INBOUND_SECRET"
+# {"configured":true,"bucket":"claude-cliq-files","names":[...],"present":true}
+```
+
+Leave `STRATUS_BUCKET` empty and attachments are simply not forwarded: the
+caption still arrives, the file routes answer 503, and nothing else changes.
 
 Catalyst env vars are **not documented as encrypted at rest** — treat them as
 config, and rotate the zapikey if the project is ever shared.

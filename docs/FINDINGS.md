@@ -283,6 +283,52 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### Forwarding an image needs three things Cliq does not advertise
+
+A screenshot is the main reason to reply from a phone at all, and until now the
+caption arrived without it. Three obstacles, each with only one way round:
+
+**The attachment URL is useless to the laptop.** `file.url` carries
+`?type=transient` and returns `attachment_access_time_expired` within minutes.
+Even fresh it would not help: the laptop holds no Cliq credential, only a
+webhook token, which posts and cannot read. The bot's Deluge handler is the one
+context authorised to read the bytes, so it has to push them.
+
+**Nothing documents how Deluge frames an upload.** `invokeurl ... files:` is the
+only durable way to move the bytes, and whether it sends multipart/form-data or
+a raw body is not written down anywhere. Rather than spend a round trip -- and
+one of the user's pastes -- finding out, `upload.js` handles both: multipart
+content type means unwrap the part carrying a filename, anything else means the
+body *is* the file. The route reports which framing arrived, so the answer gets
+recorded the first time a real image goes through instead of being inferred
+again later.
+
+One trap in writing that parser: the obvious "strip trailing newlines" trims
+bytes that belong to the file. A part body is followed by exactly one CRLF, and
+these are arbitrary bytes -- a PNG ends on a CRC -- so a file whose last byte
+happened to be 0x0a would be silently truncated. Strip exactly one.
+
+**`Pending` has no column for a filename.** Rather than migrate the table, the
+name rides in the message text as a trailing `[attached: name.png]` marker,
+which the laptop rewrites into a real path. The relay appends it, never the
+handler, so a caption containing the same text cannot forge one.
+
+The key an object is stored under is **derived, not stored**:
+`hmac(secret, "file|" + account + "|" + message_id)`. That is the whole access
+control. `/file-url` derives the key from the *requesting device's* account, so
+a message id is untrusted input that can only ever name something in the
+caller's own namespace -- and since the bot is discoverable org-wide and message
+ids are now timestamps, assume they are guessable. It also needs no row lookup,
+which matters because the `Pending` row is deleted the moment the reply is
+delivered, before the laptop asks for the file.
+
+Quota, for once, is comfortable: Stratus allows 1,000 uploads and 10,000
+downloads a month on the free tier, against one of each per forwarded image.
+
+**Stratus buckets are console-only** -- no CLI subcommand, no MCP tool. But the
+SDK's `listBuckets()` answers whether one exists, so `/files-check` reports it
+without a second trip to the console.
+
 ### A message handler gets no message id, only a timestamp
 
 Fixed, and the fix is the interesting part. The relay files each reply under

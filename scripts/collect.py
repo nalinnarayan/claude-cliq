@@ -26,6 +26,7 @@ import json
 import time
 from pathlib import Path
 
+import attach
 import spool
 import waiter
 import wake
@@ -330,6 +331,10 @@ def _drain(cfg: Config, relay: Relay, want: str) -> dict | None:
                                                "count": len(rows)}))
         except Exception:
             pass
+        # An attachment is downloaded BEFORE the row is spooled, so the
+        # durable record already names a real file. Failure only rewrites the
+        # marker into an explanation -- the reply itself is never lost.
+        attach.fetch_into(rows, relay)
         spool.add(rows)                 # durable BEFORE anything is routed
     return _route_spooled(cfg, relay, want)
 

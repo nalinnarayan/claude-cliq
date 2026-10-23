@@ -39,15 +39,6 @@ try
 	}
 	body = body.toString();
 
-	// The relay keys inbound rows on this to make a double-fired handler
-	// idempotent. It had never been sent, so the relay fell back to a random
-	// UUID on every delivery and the idempotency was decorative -- a handler
-	// retry would have delivered the same reply twice.
-	//
-	// Nothing documents where the incoming message's own id lives, so the
-	// plausible places are tried in order. An empty string is fine: the relay
-	// falls back to a UUID exactly as before, so this can only improve on
-	// what was there.
 	// The relay files each reply under this so a handler that fires twice
 	// collides instead of delivering the same reply twice. Measured, by
 	// trying each in turn and tagging the winner:
@@ -95,6 +86,58 @@ try
 		msgId = tag + "-" + user.get("id") + "-" + mid.toString();
 	}
 
+	// An attachment's bytes, forwarded before the text that announces them.
+	//
+	// Order matters: the inbound POST below rings the doorbell, and the laptop
+	// starts fetching the file within a second of hearing it. Uploading second
+	// would race that fetch and lose.
+	//
+	// `file.url` is NOT usable -- it carries ?type=transient and returns
+	// attachment_access_time_expired within minutes, and the laptop holds no
+	// Cliq credential anyway. `attachments` is the Deluge file object, and
+	// `invokeurl ... files:` is the only durable way to move it.
+	fileName = "";
+	if(mtype == "attachment")
+	{
+		try
+		{
+			finfo = md.get("file");
+			if(finfo != null)
+			{
+				fn = finfo.get("name");
+				if(fn != null)
+				{
+					fileName = fn.toString();
+				}
+			}
+			// A list in some shapes, the file object itself in others; asking
+			// for element 0 and falling back costs nothing and avoids caring.
+			fobj = attachments;
+			try
+			{
+				fobj = attachments.get(0);
+			}
+			catch (le)
+			{
+				fobj = attachments;
+			}
+			up = invokeurl
+			[
+				url: "REPLACE_WITH_RELAY_BASE/cliq-file?u=" + user.get("id") + "&mid=" + msgId
+				type: POST
+				files: fobj
+				headers: {"X-Relay-Secret": "REPLACE_WITH_RELAY_INBOUND_SECRET"}
+			];
+		}
+		catch (fe)
+		{
+			// The picture is lost; the message is not. The text still goes,
+			// and says why there is nothing to look at.
+			fileName = "";
+			body = body + " (an image came with this, but it could not be forwarded: " + fe.toString() + ")";
+		}
+	}
+
 	repliedText = "";
 	replied = md.get("replied_message");
 	if(replied != null)
@@ -106,7 +149,7 @@ try
 		}
 	}
 
-	if(body == "" && repliedText == "")
+	if(body == "" && repliedText == "" && fileName == "")
 	{
 		response.put("text", "I couldn't read that one — send it as text, or as a file with a caption.");
 	}
@@ -117,6 +160,9 @@ try
 		payload.put("text", body);
 		payload.put("replied_text", repliedText);
 		payload.put("message_id", msgId);
+		// The relay appends the "[attached: ...]" marker itself from this, so
+		// a caption containing one cannot forge it.
+		payload.put("file_name", fileName);
 
 		headers = Map();
 		headers.put("Content-Type", "application/json");

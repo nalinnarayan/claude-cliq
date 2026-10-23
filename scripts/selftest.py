@@ -10,6 +10,8 @@ CLAUDE_CLIQ_HOME so it cannot touch a real pairing.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import pathlib
 import sys
@@ -21,10 +23,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ["CLAUDE_CLIQ_HOME"] = tempfile.mkdtemp(prefix="cliq-selftest-")
 
+import attach           # noqa: E402
 import collect          # noqa: E402
 import spool            # noqa: E402
 import waiter           # noqa: E402
-from cliqlib import Config  # noqa: E402
+from cliqlib import Config, RelayError  # noqa: E402
 
 
 def row(id_, text, *, request_id="", age_s=0.0):
@@ -73,6 +76,30 @@ def clean():
     for p in Path(os.environ["CLAUDE_CLIQ_HOME"]).glob("**/*"):
         if p.is_file():
             p.unlink()
+
+
+@contextlib.contextmanager
+def mock_download(payload: bytes):
+    """Serve `payload` to attach's urlopen without touching the network."""
+    class Resp:
+        def __init__(self):
+            self._buf = io.BytesIO(payload)
+
+        def read(self, n=-1):
+            return self._buf.read(n)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    real = attach.urllib.request.urlopen
+    attach.urllib.request.urlopen = lambda *a, **k: Resp()
+    try:
+        yield
+    finally:
+        attach.urllib.request.urlopen = real
 
 
 class Spool(unittest.TestCase):
@@ -434,6 +461,117 @@ class Chooser(unittest.TestCase):
         got = collect._drain(self.cfg, relay, "aaaaa")
         self.assertEqual(got["text"], "just do it")
         self.assertEqual([m for m in relay.sent if m.get("kind") == "choose"], [])
+
+
+class Attachments(unittest.TestCase):
+    """Bringing a picture sent from Cliq down to a path Claude can read.
+
+    The reply must survive every failure here. A screenshot is the whole point
+    of replying from a phone, but a reply that arrives without its picture is
+    still a reply -- one that never arrives is a session stuck waiting.
+    """
+
+    def setUp(self):
+        attach.FILES_DIR.mkdir(parents=True, exist_ok=True)
+        for f in attach.FILES_DIR.iterdir():
+            if f.is_file():
+                f.unlink()
+
+    def test_a_marker_becomes_a_real_path(self):
+        png = bytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) + b"body"
+
+        class R:
+            released = []
+
+            def file_url(self, mid):
+                return "http://example.invalid/x"
+
+            def file_done(self, mid):
+                R.released.append(mid)
+
+        rows = [{"id": "m1", "text": "this bit is broken\n[attached: shot.png]"}]
+        with mock_download(png):
+            attach.fetch_into(rows, R())
+
+        text = rows[0]["text"]
+        self.assertIn("this bit is broken", text, "the words are kept")
+        self.assertNotIn("[attached:", text, "the marker is replaced, not left")
+        path = Path(text.split("[image attached: ")[1].rstrip("]"))
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.read_bytes(), png, "byte-for-byte")
+        self.assertEqual(R.released, ["m1"], "and the relay is told to drop it")
+
+    def test_an_attachment_with_no_caption_still_arrives(self):
+        class R:
+            def file_url(self, mid):
+                return "http://example.invalid/x"
+
+            def file_done(self, mid):
+                pass
+
+        rows = [{"id": "m2", "text": "[attached: shot.png]"}]
+        with mock_download(b"\x89PNG\r\n\x1a\n"):
+            attach.fetch_into(rows, R())
+        self.assertTrue(rows[0]["text"].startswith("[image attached: "))
+
+    def test_a_failed_download_keeps_the_reply_and_says_why(self):
+        class R:
+            def file_url(self, mid):
+                raise RelayError("bucket is on fire")
+
+        rows = [{"id": "m3", "text": "look at this\n[attached: shot.png]"}]
+        attach.fetch_into(rows, R())
+        self.assertIn("look at this", rows[0]["text"], "the reply is NOT lost")
+        self.assertIn("could not be downloaded", rows[0]["text"])
+        self.assertIn("bucket is on fire", rows[0]["text"], "with the reason")
+
+    def test_a_reply_with_no_marker_is_untouched(self):
+        class R:
+            def file_url(self, mid):
+                raise AssertionError("must not ask for a file")
+
+        rows = [{"id": "m4", "text": "just words"}]
+        attach.fetch_into(rows, R())
+        self.assertEqual(rows[0]["text"], "just words")
+
+    def test_a_filename_cannot_escape_the_download_directory(self):
+        # The name comes from whichever device sent it. The relay sanitises
+        # too, but the laptop is what actually opens a file.
+        for hostile in ("../../.ssh/id_rsa", "/etc/passwd", "..\\..\\x.dll"):
+            dest = attach._unique(hostile)
+            self.assertEqual(dest.parent, attach.FILES_DIR,
+                             f"{hostile} landed outside the download directory")
+
+    def test_an_oversized_download_is_refused_mid_stream(self):
+        # Checked as it arrives, so a lying Content-Length buys nothing.
+        class R:
+            def file_url(self, mid):
+                return "http://example.invalid/x"
+
+        rows = [{"id": "m5", "text": "big\n[attached: huge.png]"}]
+        with mock_download(b"x" * (attach.MAX_BYTES + 1)):
+            attach.fetch_into(rows, R())
+        self.assertIn("could not be downloaded", rows[0]["text"])
+        self.assertEqual([f for f in attach.FILES_DIR.iterdir() if f.is_file()], [],
+                         "and nothing half-written is left behind")
+
+    def test_old_downloads_are_pruned_and_recent_ones_kept(self):
+        old = attach.FILES_DIR / "old.png"
+        new = attach.FILES_DIR / "new.png"
+        old.write_bytes(b"x")
+        new.write_bytes(b"x")
+        past = time.time() - attach.KEEP_SECONDS - 60
+        os.utime(old, (past, past))
+        attach.prune()
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists(), "someone may still be talking about it")
+
+    def test_two_files_with_the_same_name_do_not_collide(self):
+        a = attach._unique("shot.png")
+        a.write_bytes(b"first")
+        b = attach._unique("shot.png")
+        self.assertNotEqual(a, b)
+        self.assertTrue(str(b.name).endswith(".png"), "the extension is kept")
 
 
 class SessionTitle(unittest.TestCase):
