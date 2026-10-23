@@ -48,19 +48,51 @@ try
 	// plausible places are tried in order. An empty string is fine: the relay
 	// falls back to a UUID exactly as before, so this can only improve on
 	// what was there.
+	// The relay files each reply under this so a handler that fires twice
+	// collides instead of delivering the same reply twice. Measured, by
+	// trying each in turn and tagging the winner:
+	//
+	//   message_details.message.id    null
+	//   message_details.id            null
+	//   message_details.message_id    null
+	//   message_details.message.time  null
+	//   message_details.time          WORKS -- epoch milliseconds
+	//
+	// So a handler gets no message id at all, even though a BUTTON function's
+	// `message` object carries one. A timestamp does the job regardless: the
+	// point is only that the same message filed twice collides, and one person
+	// cannot send two messages in the same millisecond. The id fields are
+	// still tried first, in case a later Cliq provides one.
+	//
+	// The tag is kept deliberately -- the key says where it came from, so if
+	// Cliq ever changes this, the next person reads it off a row instead of
+	// rediscovering it.
 	msgId = "";
 	mid = md.get("id");
+	tag = "id";
 	if(mid == null)
 	{
 		mid = message_details.get("id");
+		tag = "mdid";
 	}
 	if(mid == null)
 	{
 		mid = message_details.get("message_id");
+		tag = "mdmid";
+	}
+	if(mid == null)
+	{
+		mid = md.get("time");
+		tag = "time";
+	}
+	if(mid == null)
+	{
+		mid = message_details.get("time");
+		tag = "mdtime";
 	}
 	if(mid != null)
 	{
-		msgId = mid.toString();
+		msgId = tag + "-" + user.get("id") + "-" + mid.toString();
 	}
 
 	repliedText = "";

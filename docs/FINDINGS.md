@@ -283,7 +283,40 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
-### The inbound idempotency key is never sent
+### A message handler gets no message id, only a timestamp
+
+Fixed, and the fix is the interesting part. The relay files each reply under
+`message_id` so a handler firing twice collides rather than delivering the
+same reply twice. The handler never sent one, so the `crypto.randomUUID()`
+fallback fired every time and two copies got two different ids -- both filed.
+
+Each candidate was tried in turn with a tag naming the winner, so one paste
+both fixed it and answered what a handler has:
+
+```
+message_details.message.id    null
+message_details.id            null
+message_details.message_id    null
+message_details.message.time  null
+message_details.time          WORKS  -- epoch milliseconds
+```
+
+**A handler is given no message id at all**, even though a *button* function's
+`message` object carries one -- consistent with the earlier finding that the
+bare `message` variable in a handler is a plain string rather than an object.
+The two Deluge contexts are not the same shape, and neither is documented.
+
+The key is now `mdtime-<cliq user>-<epoch ms>`, which is all idempotency
+needs: the same message filed twice collides, and one person cannot send two
+messages in the same millisecond. The tag stays in the key on purpose, so if
+Cliq ever starts providing an id the next person reads the source off a row
+instead of rediscovering it.
+
+Worth noting the shape of the fix: a chain that reports which link held is
+cheaper than a probe followed by a fix, when each round trip costs someone a
+paste.
+
+### The inbound idempotency key is never sent (superseded, kept for the reasoning)
 
 `core.inbound` reads
 
