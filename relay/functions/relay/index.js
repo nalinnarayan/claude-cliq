@@ -35,6 +35,7 @@ function relayFor(req) {
     fnName: process.env.CLIQ_FUNCTION_NAME || 'claudeCliqAction',
     // Optional for the function's creator, required for everyone else.
     fnOwner: process.env.CLIQ_FUNCTION_OWNER || '',
+    askFnName: process.env.CLIQ_ASK_FUNCTION_NAME || 'claudeCliqAskForm',
     debugUsers: (process.env.DEBUG_USERS || '').split(',').map((s) => s.trim()).filter(Boolean),
     // Built per request like everything else -- Data Streams needs an app
     // initialised from the request headers, not from process env.
@@ -70,6 +71,9 @@ app.post('/notify', route((r, req) => r.notify({ headers: req.headers, body: req
 app.post('/peek',   route((r, req) => r.peek({ headers: req.headers })));
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
 app.post('/stream-ticket', route((r, req) => r.streamTicket({ headers: req.headers })));
+// Both are called by the bot's Deluge functions, secret-gated inside core.
+app.post('/ask-form',   route((r, req) => r.askForm({ headers: req.headers, body: req.body })));
+app.post('/ask-submit', route((r, req) => r.askSubmit({ headers: req.headers, body: req.body })));
 
 // -- Cliq-facing -----------------------------------------------------------
 app.post('/cliq-action', route((r, req) =>

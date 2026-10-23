@@ -1,0 +1,59 @@
+// Bot FORM function -- runs when the question form is sent OR dismissed.
+//
+// `trigger_on_cancel` is true on the form, so a dismissal arrives here too.
+// Measured difference: a submit carries `values` and `action` of "submit"; a
+// cancel carries NO `values` key at all and `action` of "cancel". Reading
+// values without checking would throw on every dismissal.
+//
+// The form's own `name` is the request id, which is what binds a submission to
+// the question that asked -- it cannot land on another session's question.
+//
+// Returns whatever the relay replies: either an acknowledgement or a
+// `form_error`, which Cliq accepts only as the answer to a submission. That is
+// why the "you picked Other but typed nothing" check has to be served from
+// here rather than anywhere more testable.
+//
+// Create this in the bot builder as a FORM function named exactly:
+//     REPLACE_WITH_ASK_SUBMIT_FUNCTION_NAME
+
+payload = Map();
+payload.put("cliq_user", user.get("id"));
+payload.put("name", form.get("name"));
+payload.put("action", form.get("action"));
+
+// Absent on a cancel, so it is fetched defensively and sent as an empty map.
+vals = Map();
+try
+{
+	got = form.get("values");
+	if(got != null)
+	{
+		vals = got;
+	}
+}
+catch (e)
+{
+	vals = Map();
+}
+payload.put("values", vals);
+
+headers = Map();
+headers.put("Content-Type", "application/json");
+headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
+
+response = Map();
+try
+{
+	response = invokeurl
+	[
+		url: "REPLACE_WITH_RELAY_BASE/ask-submit"
+		type: POST
+		parameters: payload.toString()
+		headers: headers
+	];
+}
+catch (e)
+{
+	response = {"text":"Couldn't reach Claude Code just now: " + e.toString()};
+}
+return response;

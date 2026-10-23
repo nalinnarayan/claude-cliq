@@ -12,6 +12,7 @@
 
 const crypto = require('crypto');
 const { splitTables } = require('./format');
+const askform = require('./askform');
 
 // Outbound messages end with "(id xxxxx)", so a swipe-reply hands that text
 // straight back in replied_message.text. Pulling the id out of it binds the
@@ -79,7 +80,7 @@ async function requireDevice(store, headers) {
  * stay free of it. `owner` matters for distribution: it is optional only for
  * the person who created the function, and required for everyone else.
  */
-function buildButtons(requestId, answers, { fnName, fnOwner }) {
+function buildButtons(requestId, answers, { fnName, fnOwner, askFnName }) {
   return answers.slice(0, 5).map((a) => ({
     // TWENTY, measured: Cliq rejects the whole message with
     // input_maxlength_reached on 'label' beyond that. The 100 here was our
@@ -87,7 +88,12 @@ function buildButtons(requestId, answers, { fnName, fnOwner }) {
     label: String(a.label || a.value).slice(0, 20),
     action: {
       type: 'invoke.function',
-      data: { name: fnName, ...(fnOwner ? { owner: fnOwner } : {}) },
+      // One answer can target a different function. The Answer button opens
+      // a form, which is a different Deluge function from the one that just
+      // records a tap -- and the laptop names neither, it only says what the
+      // button is for.
+      data: { name: a.value === 'form' ? askFnName : fnName,
+              ...(fnOwner ? { owner: fnOwner } : {}) },
     },
     // The binding: the tap carries its own request id, so it cannot land on
     // the wrong session however many are outstanding.
@@ -99,6 +105,7 @@ function buildButtons(requestId, answers, { fnName, fnOwner }) {
 
 function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now,
                        fnName = 'claudeCliqAction', fnOwner = '',
+                       askFnName = 'claudeCliqAskForm',
                        streams = null, streamSecret = '' }) {
   const debug = new Set(debugUsers.map((u) => String(u).toLowerCase()));
 
@@ -224,7 +231,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       // Cliq allows at most five buttons on a message.
       if (Array.isArray(body.answers) && body.answers.length && body.request_id) {
         extras.buttons = buildButtons(String(body.request_id), body.answers,
-                                      { fnName, fnOwner });
+                                      { fnName, fnOwner, askFnName });
       }
       await cliq.dm(device.email, prose || '(see below)', extras);
 
@@ -338,6 +345,75 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
 
       await ringDoorbell(cliqUser);
       return { ok: true };
+    },
+
+    /**
+     * POST /ask-form -- build the form behind a tapped Answer button.
+     *
+     * The questions come from the message text the tap hands back, not from
+     * anything stored. A button's `arguments` cap at 300 characters and a
+     * four-question spec is ~1.2KB -- but a button function is handed
+     * `message.get("text")` exactly as posted, so the relay parses back output
+     * it rendered itself and nothing is held between asking and answering.
+     */
+    async askForm({ headers, body }) {
+      const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
+      if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
+        throw new HttpError(403, 'bad secret');
+      }
+      const req = String(body.req || '').trim().toLowerCase();
+      if (!/^[a-z]{5}$/.test(req)) throw new HttpError(400, 'bad request id');
+      const questions = askform.parseQuestions(String(body.text || ''));
+      if (!questions.length) {
+        // Say so in the chat rather than opening an empty form, which would
+        // read as the feature being broken.
+        return { text: "I can't read that question any more — answer it at the terminal." };
+      }
+      return askform.buildForm(req, questions);
+    },
+
+    /**
+     * POST /ask-submit -- a filled or dismissed form.
+     *
+     * The form's own name IS the request id, so a submission is bound by
+     * construction and cannot be mistaken for an answer to another question.
+     */
+    async askSubmit({ headers, body }) {
+      const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
+      if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
+        throw new HttpError(403, 'bad secret');
+      }
+      const cliqUser = String(body.cliq_user || '').trim();
+      const req = String(body.name || '').trim().toLowerCase();
+      if (!cliqUser || !/^[a-z]{5}$/.test(req)) {
+        throw new HttpError(400, 'cliq_user and a valid form name required');
+      }
+      const cancelled = String(body.action || '') === 'cancel';
+
+      if (!cancelled) {
+        // The one validation that must happen here: Cliq accepts a form_error
+        // only as the reply to a submission.
+        const err = askform.missingOther(body.values);
+        if (err) return err;
+      }
+      const picked = cancelled ? {} : askform.readSubmission(body.values);
+      if (!cancelled && !Object.keys(picked).length) {
+        return { type: 'form_error', text: 'Pick at least one answer.' };
+      }
+
+      await store.putPending({
+        id: `ask-${req}-${now()}`,
+        cliq_user: cliqUser,
+        request_id: req,
+        // A sentinel, so the collector treats this as a structured answer and
+        // never regexes it for yes/no the way it would a typed reply.
+        text: JSON.stringify({ ask: cancelled ? 'cancelled' : 'answered', picked }),
+        ts: now(),
+        expires: now() + PENDING_TTL_MS,
+        retain: storesBody(cliqUser),
+      });
+      await ringDoorbell(cliqUser);
+      return { text: cancelled ? 'Left it for the terminal.' : '✓ Sent' };
     },
 
     /**

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sys
 
+import ask
 import hookutil as H
 from cliqlib import (blanket_approval_until, grant_blanket_approval,
                      is_away, new_request_id, notifies)
@@ -69,6 +70,16 @@ def main() -> int:
     tool_input = payload.get("tool_input") or {}
     session_id = payload.get("session_id", "")
     cwd = payload.get("cwd", "")
+
+    # A question is not a permission, and "allow everything" was never a
+    # statement about questions. Left to the blanket check below, an
+    # AskUserQuestion would be "approved" with updatedInput set to the
+    # UNMODIFIED input -- no answers -- which satisfies Claude Code's guard, so
+    # the decision stands and the tool runs having answered nothing. Before
+    # ECHOES_INPUT existed the decision was discarded and the dialog appeared,
+    # which was wrong but harmless; now it is silent and wrong.
+    if tool == "AskUserQuestion":
+        return ask.handle(cfg, relay, payload)
 
     # Already said "all" for this session: approve silently. Pinging Cliq
     # again would defeat the entire point of having asked.

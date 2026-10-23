@@ -1,0 +1,198 @@
+'use strict';
+/**
+ * Turning Claude's questions into a Cliq form, and a submission back again.
+ *
+ * The relay stores nothing between posting the question and the person tapping
+ * Answer. It cannot: a button's `arguments` cap at 300 characters and a
+ * four-question spec is roughly 1.2KB. What it can do is read the message back
+ * -- a Cliq button function is handed `message.get("text")` exactly as posted,
+ * markdown markers and all -- and rebuild the form from text it rendered
+ * itself.
+ *
+ * That makes the message format load-bearing in a way a message format usually
+ * is not. It is the spec. `parseQuestions` must invert what the laptop's
+ * ask.render() produced, so the round-trip test in askform.test.js is the
+ * thing standing between a layout tweak and answering silently breaking.
+ *
+ * Every limit below was measured against the live bot, not read:
+ *   radio    2-5 options      checkbox 1-5 (+ max_selections)
+ *   option label  <= 100      option value <= 50
+ *   field label   <= 50       hint         <= 100
+ *   form name     <= 50       inputs       <= 25
+ */
+
+// A question line is bold and alone; an option line is "<n>. <label>"; a
+// description is indented with em spaces and italic. Anchored so a question
+// whose text happens to contain "1. " cannot be mistaken for an option.
+const QUESTION_RE = /^\*(.+)\*$/;
+const OPTION_RE = /^(\d+)\.\s+(.+)$/;
+const DESCRIPTION_RE = /^[ \s]+_/;
+
+const MAX_OPTION_LABEL = 100;
+const MAX_FIELD_LABEL = 50;
+const MAX_HINT = 100;
+const MAX_INPUTS = 25;
+const RADIO_MAX = 5;
+
+const OTHER_LABEL = 'Something else — type it below';
+
+/**
+ * Read questions back out of the message text.
+ *
+ * Returns [{question, options:[label]}]. Descriptions are dropped: they exist
+ * for the person reading the message, and a form has nowhere to put them.
+ */
+function parseQuestions(text) {
+  const out = [];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (DESCRIPTION_RE.test(raw)) continue;          // option description
+
+    const q = QUESTION_RE.exec(line);
+    if (q) {
+      out.push({ question: q[1].trim(), options: [] });
+      continue;
+    }
+    const o = OPTION_RE.exec(line);
+    if (o && out.length) {
+      out[out.length - 1].options.push(o[2].trim());
+    }
+    // Anything else is the heading or prose around the list, and is ignored.
+  }
+  return out.filter((x) => x.options.length);
+}
+
+/** Does this question want more than one answer? Marked in the rendered text. */
+function isMulti(question) {
+  return / \(choose any\)$/.test(question);
+}
+
+function stripMulti(question) {
+  return question.replace(/ \(choose any\)$/, '');
+}
+
+/**
+ * Build the form Cliq renders.
+ *
+ * `requestId` becomes the form's `name`, which is the whole binding scheme:
+ * a submission comes back carrying it, so it can never be mistaken for an
+ * answer to another question. Measured -- the name round-trips exactly.
+ */
+function buildForm(requestId, questions, { submitFn = 'claudeCliqAskSubmit' } = {}) {
+  const inputs = [];
+  questions.slice(0, Math.floor(MAX_INPUTS / 2)).forEach((q, i) => {
+    const multi = isMulti(q.question);
+    const label = stripMulti(q.question);
+    const options = q.options.map((text, n) => ({
+      label: String(text).slice(0, MAX_OPTION_LABEL),
+      // The INDEX, not the text. The laptop maps it back to the original
+      // label, so a label truncated at 100 characters never reaches Claude.
+      value: String(n),
+    }));
+
+    // radio needs at least two options and allows at most five. A
+    // single-option question would otherwise fail the WHOLE form at open
+    // time, after the tap -- so Other pads it. At the ceiling, Other is
+    // dropped and the text box carries it instead.
+    if (options.length < RADIO_MAX) {
+      options.push({ label: OTHER_LABEL, value: 'other' });
+    }
+
+    inputs.push({
+      type: multi ? 'checkbox' : 'radio',
+      name: `q${i}`,
+      label: label.slice(0, MAX_FIELD_LABEL),
+      hint: label.length > MAX_FIELD_LABEL ? label.slice(0, MAX_HINT) : 'Pick one',
+      mandatory: !multi,
+      options,
+      ...(multi ? { max_selections: options.length } : {}),
+    });
+    inputs.push({
+      type: 'text',
+      name: `q${i}_other`,
+      label: 'Something else',
+      hint: 'Only if you picked the last option',
+      placeholder: 'your own answer',
+      mandatory: false,
+    });
+  });
+
+  return {
+    type: 'form',
+    title: 'Answer Claude',
+    name: String(requestId).slice(0, 50),
+    hint: 'Your pick goes straight back to the session that asked.',
+    button_label: 'Send',
+    version: 1,
+    // So a dismissal reaches us and the session is released at once rather
+    // than held for the rest of its window.
+    trigger_on_cancel: true,
+    action: { type: 'invoke.function', name: submitFn, mode: 'immediate' },
+    inputs,
+  };
+}
+
+/**
+ * Turn a submission into {questionIndex: [indexes or free text]}.
+ *
+ * Measured shape: a radio returns an OBJECT `{label, value}`, a checkbox a
+ * comma-joined list of values, and an empty text input is `""` rather than
+ * absent. On a cancel, `values` is missing entirely.
+ */
+function readSubmission(values) {
+  const picked = {};
+  const other = {};
+  for (const [field, value] of Object.entries(values || {})) {
+    const m = /^q(\d+)(_other)?$/.exec(field);
+    if (!m) continue;
+    const idx = m[1];
+    if (m[2]) {
+      if (String(value || '').trim()) other[idx] = String(value).trim();
+      continue;
+    }
+    const raw = value && typeof value === 'object' ? value.value : value;
+    const parts = String(raw == null ? '' : raw)
+      .split(',').map((x) => x.trim()).filter(Boolean);
+    if (parts.length) picked[idx] = parts;
+  }
+  // "Other" is the chosen option plus whatever was typed; the typed text
+  // replaces the marker rather than joining it.
+  for (const [idx, text] of Object.entries(other)) {
+    const chosen = (picked[idx] || []).filter((p) => p !== 'other');
+    picked[idx] = chosen.concat([text]);
+  }
+  for (const [idx, chosen] of Object.entries(picked)) {
+    picked[idx] = chosen.filter((p) => p !== 'other');
+    if (!picked[idx].length) delete picked[idx];
+  }
+  return picked;
+}
+
+/**
+ * Which questions were answered with "Other" but nothing typed.
+ *
+ * Returned as a Cliq `form_error`, the one validation that has to happen in
+ * the submit handler because that is the only place Cliq accepts one.
+ */
+function missingOther(values) {
+  const inputs = {};
+  for (const [field, value] of Object.entries(values || {})) {
+    const m = /^q(\d+)$/.exec(field);
+    if (!m) continue;
+    const raw = value && typeof value === 'object' ? value.value : value;
+    const chose = String(raw == null ? '' : raw).split(',').map((x) => x.trim());
+    if (!chose.includes('other')) continue;
+    const typed = String(values[`q${m[1]}_other`] || '').trim();
+    if (!typed) inputs[`q${m[1]}_other`] = 'Type your answer, or pick one of the options.';
+  }
+  return Object.keys(inputs).length
+    ? { type: 'form_error', text: 'Almost there.', inputs }
+    : null;
+}
+
+module.exports = {
+  parseQuestions, buildForm, readSubmission, missingOther,
+  isMulti, stripMulti, OTHER_LABEL,
+  MAX_OPTION_LABEL, MAX_FIELD_LABEL, MAX_HINT, MAX_INPUTS, RADIO_MAX,
+};

@@ -1,0 +1,52 @@
+// Bot BUTTON function -- the target of the "Answer" button on a question.
+//
+// Its whole job is to hand the relay the message it is attached to and return
+// whatever form comes back. The questions are IN that message: a button's
+// `arguments` cap at 300 characters and a four-question form spec is about
+// 1.2KB, but `message.get("text")` returns the text exactly as posted,
+// markdown markers and all. So nothing is stored between asking and answering,
+// and the parsing lives in Node where it can be tested.
+//
+// Create this in the bot builder as a BUTTON function named exactly (Cliq
+// function names allow letters only -- no underscores):
+//     REPLACE_WITH_ASK_FUNCTION_NAME
+
+payload = Map();
+payload.put("req", arguments.get("req"));
+
+// Best-effort: if the message is somehow unavailable the relay answers with a
+// line of text instead of a form, which is a better outcome than an error.
+body = "";
+try
+{
+	body = message.get("text").toString();
+}
+catch (e)
+{
+	body = "";
+}
+payload.put("text", body);
+
+headers = Map();
+headers.put("Content-Type", "application/json");
+headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
+
+// One return at the top level: Deluge does not count a return inside a try,
+// and reports the error against the `try` line, which is thoroughly
+// misleading.
+response = Map();
+try
+{
+	response = invokeurl
+	[
+		url: "REPLACE_WITH_RELAY_BASE/ask-form"
+		type: POST
+		parameters: payload.toString()
+		headers: headers
+	];
+}
+catch (e)
+{
+	response = {"text":"Couldn't reach Claude Code just now: " + e.toString()};
+}
+return response;

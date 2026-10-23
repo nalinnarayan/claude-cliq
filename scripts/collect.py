@@ -243,7 +243,9 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
         text, bound_id = item["text"], item["request_id"]
 
         # A chooser tap: it names a session and carries no text of its own,
-        # because the text it is about is the one we held when we asked.
+        # because the text it is about is the one we held when we asked. A
+        # form submission also carries a bound id, but brings its own JSON, so
+        # the emptiness test keeps the two apart.
         if bound_id and not text:
             held = spool.oldest_needing_pick()
             picked = next((w for w in armed if w["request_id"] == bound_id), None)

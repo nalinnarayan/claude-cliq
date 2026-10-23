@@ -73,17 +73,25 @@ def main() -> int:
     (OUT / ".gitignore").write_text("*\n")
 
     fn_name = env.get("CLIQ_FUNCTION_NAME", "claudeCliqAction")
+    ask_fn = env.get("CLIQ_ASK_FUNCTION_NAME", "claudeCliqAskForm")
+    ask_submit_fn = env.get("CLIQ_ASK_SUBMIT_FUNCTION_NAME", "claudeCliqAskSubmit")
     sources = sorted(f.name for f in HERE.glob("*.dg") if "debug" not in f.name)
     for name in sources:
         text = (HERE / name).read_text()
         text = (text.replace("REPLACE_WITH_RELAY_INBOUND_SECRET", secret)
                     .replace("REPLACE_WITH_RELAY_BASE", base)
                     .replace("REPLACE_WITH_FUNCTION_NAME", fn_name)
+                    .replace("REPLACE_WITH_ASK_FUNCTION_NAME", ask_fn)
+                    .replace("REPLACE_WITH_ASK_SUBMIT_FUNCTION_NAME", ask_submit_fn)
                     .replace("REPLACE_WITH_REPO", args.repo))
         # The bot function is written out under the name it must be CREATED
         # with, so there is no way to paste it into the wrong one.
         if name == "claudeCliqAction.dg":
             name = f"{fn_name}.dg"
+        elif name == "claudeCliqAskForm.dg":
+            name = f"{ask_fn}.dg"
+        elif name == "claudeCliqAskSubmit.dg":
+            name = f"{ask_submit_fn}.dg"
         if "REPLACE_WITH_" in text:
             leftover = [l.strip() for l in text.splitlines() if "REPLACE_WITH_" in l]
             print(f"! {name} still has placeholders: {leftover}", file=sys.stderr)

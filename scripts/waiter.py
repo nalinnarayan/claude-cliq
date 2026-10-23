@@ -266,6 +266,22 @@ def route(text: str, waiters: list[dict], *, bound: bool = False
         if not waiters:
             return None, None
 
+    # A form submission arrives as JSON rather than prose. It is always bound
+    # -- the form's own name is the request id -- so it is recognised before
+    # anything tries to read it as a sentence.
+    if bound and len(waiters) == 1 and text.lstrip().startswith("{"):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and data.get("ask"):
+            kind = "cancelled" if data["ask"] == "cancelled" else "picked"
+            return waiters[0]["request_id"], {
+                "type": "cancelled" if kind == "cancelled" else "answer",
+                "picked": data.get("picked") or {},
+                "text": text,
+            }
+
     if len(waiters) == 1 and waiters[0].get("kind") == "ask":
         return waiters[0]["request_id"], {"type": "answer", "text": text.strip()}
 
