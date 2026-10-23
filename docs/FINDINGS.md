@@ -543,6 +543,45 @@ with its name and pending question, so the overflow is navigable rather than
 mysterious — that property is now load-bearing and should not be traded away
 for a terser message.
 
+### A button function receives its message, raw
+
+The finding that removes a schema change. A Cliq **button** function is handed
+the message its button sits on:
+
+```
+keys: is_read, sender, id, time, text, t…
+text: *Gate test* — tap Answer. A form should o…
+```
+
+**The asterisks are intact.** `message.get("text")` returns the text exactly as
+posted, before Cliq's markdown rendering -- so a round trip through Cliq is
+lossless and the relay can parse back its own output.
+
+That matters because button `arguments` cap at 300 characters, which a
+four-question form spec cannot fit. The obvious conclusion was that the relay
+must hold the questions between sending the message and the tap -- message
+content living server-side, breaking the rule that `Pending.body` is deleted
+on delivery. It does not have to:
+
+```
+tap -> Deluge posts {req, message text} to the relay
+    -> the relay parses the questions out of the text IT rendered
+    -> returns the built form, which Deluge returns to Cliq
+```
+
+No table, no console step, no content at rest, and the parsing lives in Node
+where it is testable rather than in Deluge. Deluge stays a courier.
+
+The format has to round-trip, which is a real constraint -- but the relay both
+writes and reads it, so a numbered list is enough: readable to a person,
+unambiguous to a parser.
+
+Also noted for later: the message `id` is available here. `/cliq-inbound` keys
+inbound rows on `message_id` for idempotency and the handler never sends one,
+so the fallback UUID fires every time. That is the message **handler**, not a
+button function, so this does not fix it -- but it shows the id exists in at
+least one Deluge context, which is more than was known.
+
 ### What a Cliq form submission actually hands back
 
 Measured, because the docs only say "the value defined for this key will be

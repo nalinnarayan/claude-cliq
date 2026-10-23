@@ -33,7 +33,43 @@ q0 = Map();
 q0.put("type", "radio");
 q0.put("name", "q0");
 q0.put("label", "Probe question");
-q0.put("hint", "spec argument length: " + arglen);
+// Does a BUTTON function get the message it is attached to? If it does, the
+// questions can be read from the message text -- they are already there for
+// the human -- and the relay needs to store nothing between sending and
+// tapping. That is the difference between a schema change and none.
+// 1253 characters came back, which is more than the text that was sent, so
+// `message` is an object rather than a bare string. What matters now is
+// whether the TEXT is in there and arrives as we wrote it -- if the relay can
+// parse back what it rendered, nothing needs storing between send and tap.
+seen = "unavailable";
+try
+{
+	seen = message.keys().toString();
+}
+catch (e)
+{
+	seen = "no keys(): " + e.toString();
+}
+body = "unavailable";
+try
+{
+	body = message.get("text").toString();
+}
+catch (e)
+{
+	body = "no text key: " + e.toString();
+}
+
+// Clipped with an explicit length check rather than a bare subString: Deluge
+// errors when the end index runs past the string, and a hint over 100
+// characters makes Cliq reject the WHOLE form -- either way the probe would
+// tell us nothing instead of telling us the answer.
+hintA = "keys: " + seen;
+if(hintA.length() > 99)
+{
+	hintA = hintA.subString(0, 99);
+}
+q0.put("hint", hintA);
 q0.put("mandatory", true);
 q0.put("options", opts);
 
@@ -41,7 +77,12 @@ q0other = Map();
 q0other.put("type", "text");
 q0other.put("name", "q0_other");
 q0other.put("label", "Other");
-q0other.put("hint", "leave this blank");
+hintB = "text: " + body;
+if(hintB.length() > 99)
+{
+	hintB = hintB.subString(0, 99);
+}
+q0other.put("hint", hintB);
 q0other.put("placeholder", "type here");
 q0other.put("mandatory", false);
 
