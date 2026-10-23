@@ -531,6 +531,30 @@ class Attachments(unittest.TestCase):
         self.assertEqual(path.read_bytes(), png, "byte-for-byte")
         self.assertEqual(R.released, ["m1"], "and the relay is told to drop it")
 
+    def test_the_marker_names_what_actually_arrived(self):
+        # A spreadsheet was announced as "[image attached: ...]", which tells a
+        # session the wrong thing about what it can do with the path.
+        import zipfile
+        cases = {
+            "shot.png": bytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            "photo.jpg": b"\xff\xd8\xff\xe0" + b"0" * 20,
+            "notes.pdf": b"%PDF-1.4\n" + b"0" * 20,
+        }
+        for name, payload in cases.items():
+            path = attach.FILES_DIR / name
+            path.write_bytes(payload)
+            want = "image" if name.endswith((".png", ".jpg")) else "document"
+            self.assertEqual(attach.kind_of(path), want, name)
+
+        book = attach.FILES_DIR / "trades.xlsx"
+        with zipfile.ZipFile(book, "w") as z:
+            z.writestr("xl/workbook.xml", "<workbook/>")
+        self.assertEqual(attach.kind_of(book), "file",
+                         "a spreadsheet is not an image")
+
+        # And an unreadable path must not raise on the delivery path.
+        self.assertEqual(attach.kind_of(attach.FILES_DIR / "nope.bin"), "file")
+
     def test_an_attachment_with_no_caption_still_arrives(self):
         class R:
             def file_url(self, mid):

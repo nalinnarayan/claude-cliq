@@ -60,6 +60,33 @@ def _unique(name: str) -> Path:
     return FILES_DIR / f"{stamp}-{int(time.time() * 1000)}{ext}"
 
 
+# Enough to tell Claude whether the path it has been handed can be read as a
+# picture. Not a content check -- the point is only the wording of the line the
+# session sees.
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "image"),
+    (b"\xff\xd8\xff", "image"),
+    (b"GIF8", "image"),
+    (b"%PDF", "document"),
+    (b"PK\x03\x04", "file"),          # xlsx, docx, zip -- all the same box
+)
+
+
+def kind_of(path: Path) -> str:
+    """"image", "document" or "file", from the first bytes on disk."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(12)
+    except OSError:
+        return "file"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image"
+    for magic, kind in _IMAGE_MAGIC:
+        if head.startswith(magic):
+            return kind
+    return "file"
+
+
 def _download(url: str, dest: Path) -> int:
     """Fetch to disk, refusing anything implausibly large.
 
@@ -124,8 +151,12 @@ def fetch_into(rows: list[dict], relay: Relay) -> None:
             dest = _unique(name)
             size = _download(url, dest)
             log(f"attach: saved {dest} ({size} bytes)")
-            row["text"] = (f"{body}\n[image attached: {dest}]" if body
-                           else f"[image attached: {dest}]")
+            # "image attached" was said for everything, including a
+            # spreadsheet -- which tells a session the wrong thing about what
+            # it can do with the path.
+            kind = kind_of(dest)
+            row["text"] = (f"{body}\n[{kind} attached: {dest}]" if body
+                           else f"[{kind} attached: {dest}]")
             try:
                 relay.file_done(message_id)
             except (RelayError, urllib.error.URLError) as exc:
