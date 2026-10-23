@@ -25,6 +25,7 @@ os.environ["CLAUDE_CLIQ_HOME"] = tempfile.mkdtemp(prefix="cliq-selftest-")
 
 import attach           # noqa: E402
 import collect          # noqa: E402
+import wake             # noqa: E402
 import spool            # noqa: E402
 import waiter           # noqa: E402
 from cliqlib import Config, RelayError, notify_only_hint  # noqa: E402
@@ -771,6 +772,25 @@ class Transport(unittest.TestCase):
     def arm(self, rid):
         waiter.arm(rid, session_id="s", kind="finished", cwd="/tmp",
                    expires_at=time.time() + 60)
+
+    def test_a_closed_socket_is_retried_rather_than_abandoned(self):
+        # Reported live: "The Cliq doorbell isn't reachable, so I'm falling
+        # back to polling." One closed socket did that. A server-side close is
+        # transient -- Data Streams closes idle connections and rotates hosts,
+        # and EVERY connect in the log already failed once with
+        # SESSION_EXPIRED before succeeding -- so classifying it as fatal
+        # traded the doorbell for polling over an ordinary event.
+        self.assertTrue(
+            wake.WakeError("connection closed by the server",
+                           retryable=True).retryable)
+        # Both close sites must agree; the handshake one loses the same race.
+        src = (Path(__file__).parent / "wake.py").read_text()
+        for message in ("connection closed by the server",
+                        "server closed during the handshake"):
+            at = src.index(message)
+            window = src[at:at + 200]
+            self.assertIn("retryable=True", window,
+                          f"{message!r} should reconnect, not fall back")
 
     def test_poll_mode_never_opens_the_stream(self):
         # The whole point of the hatch: a surprise bill or a blocked port must

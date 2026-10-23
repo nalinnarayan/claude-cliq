@@ -138,7 +138,11 @@ class _Conn:
                 raise WakeError("timed out waiting for the upgrade response")
             chunk = self.sock.recv(4096)
             if not chunk:
-                raise WakeError("server closed during the handshake")
+                # Retryable for the same reason: the first connect after
+                # minting a ticket routinely loses the race with the server
+                # registering the session, and the next one works.
+                raise WakeError("server closed during the handshake",
+                                retryable=True)
             head += chunk
         header_blob, _, rest = head.partition(b"\r\n\r\n")
         self._buf = rest                      # frames may already be in here
@@ -167,7 +171,11 @@ class _Conn:
             self._wait_readable(deadline)
             chunk = self.sock.recv(65536)
             if not chunk:
-                raise WakeError("connection closed by the server")
+                # RETRYABLE. A server-side close is transient: Data Streams
+                # closes idle connections and rotates hosts. Treated as fatal
+                # it dropped the machine to polling over ONE closed socket --
+                # the exact cost the doorbell exists to avoid.
+                raise WakeError("connection closed by the server", retryable=True)
             self._buf += chunk
         out, self._buf = self._buf[:n], self._buf[n:]
         return out
