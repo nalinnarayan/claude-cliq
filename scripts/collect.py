@@ -48,6 +48,13 @@ _mode = "?"
 # Read by the leader so it can stop listening in time to deliver it.
 _hold_until = 0.0
 
+# Returned from on_wake to break out of a listen whose deadline is now too
+# far away. A hold is decided INSIDE the wake handler, by which point listen()
+# is already waiting on the full window -- so without this the leader comes
+# back whenever the next unrelated event happens to arrive, which was measured
+# at 28 seconds for a 12-second hold.
+_HOLD = object()
+
 # How long a follower waits on its own waiter file before checking whether
 # leadership has fallen vacant. Short enough that a leader dying is noticed
 # quickly, long enough to cost nothing.
@@ -290,6 +297,7 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
 
     mine = None
     taken: list[str] = []
+    held_logged = False          # one line per pass, not one per attachment
     for item in spool.items():
         armed = waiter.active()
         if not armed:
@@ -371,8 +379,11 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
                         and now - first < cfg.attachment_grace_seconds):
                     _hold_until = min(newest + cfg.attachment_quiet_seconds,
                                       first + cfg.attachment_grace_seconds)
-                    log(f"collect: holding {len(group)} attachment(s) for "
-                        f"{_hold_until - now:.0f}s more in case another follows")
+                    if not held_logged:
+                        log(f"collect: holding {len(group)} attachment(s) for "
+                            f"{_hold_until - now:.0f}s more in case another "
+                            f"follows")
+                        held_logged = True
                     continue
             if siblings:
                 # Sorted as a whole, anchor included: the spool is iterated in
@@ -457,10 +468,21 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
     _mode = "stream"
     _mark_stream_up()               # we are connected, so clear any cooldown
 
+    # The deadline the running listen was given, so on_wake can tell whether
+    # a newly set hold is actually sooner.
+    listening_until = [deadline]
+
     def on_wake(body):
         if not isinstance(body, dict) or body.get("w") != wake_id:
             return None                 # another account's bell
-        return _drain(cfg, relay, want)
+        got = _drain(cfg, relay, want)
+        if got is not None:
+            return got
+        if _hold_until and _hold_until < listening_until[0]:
+            # Something is being held for the rest of a multi-attachment send
+            # and this socket would otherwise wait out the whole window.
+            return _HOLD
+        return None
 
     # No ticket renewal on a retry, deliberately. Re-minting for the same
     # connection_name is refused -- "Duplicate value for connection_name" --
@@ -473,16 +495,26 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
         # multi-attachment send, so the hold can be handed over on time rather
         # than sitting until the whole window expires.
         until = min(deadline, _hold_until) if _hold_until else deadline
+        listening_until[0] = until
         got = wake.listen(creds, deadline=until, on_wake=on_wake, log=log)
-        if got is not None:
+        if got is not None and got is not _HOLD:
             return got
-        if time.time() >= deadline or not _hold_until:
+        if time.time() >= deadline:
             return None
-        # The grace is up. Route what is spooled WITHOUT fetching -- a read
-        # here would buy nothing, since the doorbell never rang.
+        if got is _HOLD:
+            continue              # re-listen, now with the hold's deadline
+        if not _hold_until:
+            return None
+        # The quiet period is up. Route what is spooled WITHOUT fetching -- a
+        # read here would buy nothing, since the doorbell never rang.
         got = _route_spooled(cfg, relay, want)
         if got is not None:
             return got
+        # Still holding, so listen again -- but never tighter than the hold
+        # itself. A real listen blocks until its deadline; one that returns
+        # straight away (a deadline already passed, say) would otherwise spin
+        # this loop at full speed.
+        time.sleep(max(0.0, min(_hold_until, deadline) - time.time()))
 
 
 def wait_for(cfg: Config, relay: Relay, request_id: str,

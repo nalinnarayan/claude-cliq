@@ -309,9 +309,17 @@ Three things make that affordable:
 - It only applies to a reply that brought a file. A typed reply is handed over
   immediately, so the ordinary case is unchanged.
 - The wait is spent listening on the doorbell the next picture will ring
-  anyway, so it costs **no extra reads**. The leader simply stops listening at
-  the end of the grace instead of at the end of the window, and routes what is
-  spooled without fetching.
+  anyway, so it costs **no extra reads**. The leader stops listening at the
+  end of the quiet period instead of at the end of the window, and routes what
+  is spooled without fetching.
+
+  That last part needed a sentinel to work at all. The hold is decided *inside*
+  the wake handler, by which point `listen()` is already waiting on the full
+  thirty-minute window -- shortening a deadline it has already been given does
+  nothing. So the handler returns a `_HOLD` marker, the leader breaks out, and
+  re-enters `listen` with the nearer deadline. Without it a 12-second hold was
+  measured taking **28 seconds** to deliver, returning only when some unrelated
+  event happened along.
 - It is skipped entirely when more than one session is waiting, since holding
   would only delay a reply the chooser has to ask about regardless.
 

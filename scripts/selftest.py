@@ -986,6 +986,47 @@ class Transport(unittest.TestCase):
         got = collect.wait_for(cfg, relay, "aaaaa", time.time() + 5)
         self.assertEqual(got["text"], "polled")
 
+    def test_a_hold_set_mid_listen_brings_the_leader_back_early(self):
+        # The hold is decided INSIDE the wake handler, by which point listen()
+        # is already waiting on the full window. Without a way out, the leader
+        # returns whenever the next unrelated event happens to arrive -- a
+        # 12-second hold was measured taking 28 seconds to deliver.
+        # A short quiet period: the point is the DEADLINE the leader listens
+        # on, not how long it is.
+        cfg = Config(transport="stream", attachment_quiet_seconds=0.3,
+                     attachment_grace_seconds=120.0, stale_after_seconds=1800)
+        self.arm("aaaaa")
+        deadline = time.time() + 1800
+        # First fetch empty, then the picture, then nothing more.
+        relay = FakeRelay([[], [row("1", "[image attached: /tmp/a.png]", age_s=0)], []])
+
+        import wake as _wake
+        original = _wake.listen
+        deadlines = []
+
+        def fake_listen(creds, *, deadline, on_wake, log=lambda *_: None, **kw):
+            deadlines.append(deadline)
+            if len(deadlines) == 1:
+                return on_wake({"w": "deadbeef"})      # the picture arrives
+            # A real listen blocks until its deadline; mimic that, or the
+            # leader's loop would be measuring nothing.
+            time.sleep(max(0.0, min(deadline - time.time(), 1.0)))
+            return None
+
+        _wake.listen = fake_listen
+        try:
+            collect._lead(cfg, relay, "aaaaa", deadline)
+        finally:
+            _wake.listen = original
+
+        self.assertGreaterEqual(len(deadlines), 2, "it listened again")
+        self.assertAlmostEqual(deadlines[0], deadline, delta=1,
+                               msg="the first listen waits on the whole window")
+        self.assertLess(deadlines[1], deadline - 1000,
+                        "the second waits only for the hold, not the window")
+        # And once the quiet passes, the held picture is actually delivered.
+        self.assertEqual(spool.items(), [], "nothing left holding")
+
     def test_an_unreachable_stream_falls_back_instead_of_stranding(self):
         # A proxy blocking wss:// raises OSError from the socket, which used
         # to escape every handler and release the session to the terminal.
