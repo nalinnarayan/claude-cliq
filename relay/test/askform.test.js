@@ -86,6 +86,15 @@ test('text with no question list parses to nothing rather than guessing', () => 
 // Building the form, against the measured Cliq limits.
 // ---------------------------------------------------------------------------
 
+test('the form names the submit handler it was told to, not a default', () => {
+  // Cliq answers a submission addressed to a missing function with "This
+  // function does not exist". The default name only exists in an untouched
+  // install, so every environment MUST pass its own.
+  const form = buildForm('abcde', [{ question: 'Q', options: ['A', 'B'] }],
+                         { submitFn: 'claudeCliqAskSubmitTest' });
+  assert.strictEqual(form.action.name, 'claudeCliqAskSubmitTest');
+});
+
 test('the request id becomes the form name, which is the whole binding', () => {
   const form = buildForm('abcde', [{ question: 'Q', options: ['A', 'B'] }]);
   assert.strictEqual(form.name, 'abcde');

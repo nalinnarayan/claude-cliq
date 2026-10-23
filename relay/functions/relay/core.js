@@ -106,6 +106,7 @@ function buildButtons(requestId, answers, { fnName, fnOwner, askFnName }) {
 function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.now,
                        fnName = 'claudeCliqAction', fnOwner = '',
                        askFnName = 'claudeCliqAskForm',
+                       askSubmitFnName = 'claudeCliqAskSubmit',
                        streams = null, streamSecret = '' }) {
   const debug = new Set(debugUsers.map((u) => String(u).toLowerCase()));
 
@@ -369,7 +370,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
         // read as the feature being broken.
         return { text: "I can't read that question any more — answer it at the terminal." };
       }
-      return askform.buildForm(req, questions);
+      return askform.buildForm(req, questions, { submitFn: askSubmitFnName });
     },
 
     /**

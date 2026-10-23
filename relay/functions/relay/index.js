@@ -36,6 +36,11 @@ function relayFor(req) {
     // Optional for the function's creator, required for everyone else.
     fnOwner: process.env.CLIQ_FUNCTION_OWNER || '',
     askFnName: process.env.CLIQ_ASK_FUNCTION_NAME || 'claudeCliqAskForm',
+    // The form names its own submit handler, so this has to reach buildForm.
+    // Defaulting it inside askform.js was not enough: the default is a name
+    // that only exists in an untouched install, and Cliq answers a submission
+    // to a missing function with "This function does not exist".
+    askSubmitFnName: process.env.CLIQ_ASK_SUBMIT_FUNCTION_NAME || 'claudeCliqAskSubmit',
     debugUsers: (process.env.DEBUG_USERS || '').split(',').map((s) => s.trim()).filter(Boolean),
     // Built per request like everything else -- Data Streams needs an app
     // initialised from the request headers, not from process env.
