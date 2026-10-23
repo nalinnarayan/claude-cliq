@@ -457,7 +457,16 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         retain: storesBody(cliqUser),
       });
       await ringDoorbell(cliqUser);
-      return { text: cancelled ? 'Left it for the terminal.' : '✓ Sent' };
+      // Cancelling is not nothing: the form is built with trigger_on_cancel
+      // so a dismissal reaches us and hands the session straight back to the
+      // terminal, rather than leaving it held for the rest of its window.
+      // Worth saying outright -- "Left it for the terminal." was asked about,
+      // which means it explained neither what happened nor what to do next.
+      return {
+        text: cancelled
+          ? 'Cancelled — nothing sent. The question is waiting at your terminal.'
+          : '✓ Sent',
+      };
     },
 
     /**
