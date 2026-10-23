@@ -291,6 +291,24 @@ def send_allowed(limit_per_min: int) -> bool:
 MODES = ("off", "notify", "on")
 
 
+def notify_only_hint(waiting_at_terminal: bool = False) -> str:
+    """What to tell someone whose reply cannot reach the session.
+
+    In notify-only mode a reply from Cliq reaches nothing: no hook is
+    listening, so it sits in the relay until it expires and the person hears
+    nothing back. A message they could answer and a message they cannot look
+    identical, so every notify-only message has to say which it is -- and,
+    more usefully, how to change it.
+    """
+    if waiting_at_terminal:
+        return ("notify-only — it's waiting for you at the terminal, and "
+                "replying here won't reach it. Run `/claude-cliq:away on` "
+                "to change that.")
+    return ("notify-only — replying here won't reach this session. "
+            "Run `/claude-cliq:away on` at the terminal to change that.")
+
+
+
 def mode() -> str:
     """Which of the three states is active."""
     try:

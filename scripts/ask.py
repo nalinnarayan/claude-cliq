@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hookutil as H
 import waiter
-from cliqlib import Config, Relay, is_away, new_request_id
+from cliqlib import Config, Relay, is_away, new_request_id, notify_only_hint
 
 
 def questions_of(payload: dict) -> list[dict]:
@@ -149,7 +149,7 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
         # terminal is already showing the picker.
         H.send(relay, kind="ask", text=text, request_id=rid,
                session_id=session_id, cwd=cwd, expects_reply=False,
-               hint="waiting for you at the terminal")
+               hint=notify_only_hint(waiting_at_terminal=True))
         return 0
 
     if not H.send(relay, kind="ask", text=text, request_id=rid,

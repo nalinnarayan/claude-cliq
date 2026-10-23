@@ -11,7 +11,8 @@ from __future__ import annotations
 import sys
 
 import hookutil as H
-from cliqlib import block_streak, is_away, new_request_id, notifies
+from cliqlib import (block_streak, is_away, new_request_id, notifies,
+                     notify_only_hint)
 
 
 def main() -> int:
@@ -73,8 +74,7 @@ def main() -> int:
         # to reply into the void: a reply here reaches nothing, and the person
         # has no way of knowing that from a message that looks identical to
         # one they could answer.
-        hint = ("notify-only — replying here won't reach this session. "
-                "Run `/claude-cliq:away on` at the terminal to change that.")
+        hint = notify_only_hint()
 
     H.send(relay, kind="finished", text=text, request_id=rid,
            session_id=session_id, cwd=cwd, expects_reply=armed, hint=hint)

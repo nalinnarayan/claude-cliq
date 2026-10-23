@@ -27,7 +27,7 @@ import attach           # noqa: E402
 import collect          # noqa: E402
 import spool            # noqa: E402
 import waiter           # noqa: E402
-from cliqlib import Config, RelayError  # noqa: E402
+from cliqlib import Config, RelayError, notify_only_hint  # noqa: E402
 
 
 def row(id_, text, *, request_id="", age_s=0.0):
@@ -165,6 +165,35 @@ class Routing(unittest.TestCase):
                          "the file, or active() would keep reporting it")
         self.assertTrue(waiter.armed("aaaaa"), "the other is untouched")
         self.assertFalse(handed_over("aaaaa"), "and not answered by mistake")
+
+    def test_tapping_a_dead_question_points_at_the_live_one(self):
+        # Reported from a phone: "Why did I receive this nothing is waiting
+        # message?" -- a question had been asked, interrupted at the terminal,
+        # then asked again, leaving two identical-looking messages each with
+        # an Answer button. Tapping the older one is the obvious mistake, and
+        # "nothing's waiting" alone leaves someone to work out which message
+        # to use.
+        self.arm("bbbbb")                                   # the live question
+        relay = FakeRelay([[row("1", '{"0":["Image forwarding"]}',
+                                 request_id="aaaaa")]])      # the dead one
+        got = collect._drain(self.cfg, relay, "bbbbb")
+        self.assertIsNone(got, "a dead binding must not answer the live one")
+        self.assertTrue(waiter.armed("bbbbb"), "which is still waiting")
+        said = " ".join(m["text"] for m in relay.sent)
+        self.assertIn("Nothing's waiting on that one", said)
+        self.assertIn("newer message", said, "and says where to go instead")
+
+    def test_with_nothing_armed_a_reply_is_held_not_dropped(self):
+        # Why the message above can always say "there's a newer one": the
+        # routing loop breaks when no session is waiting, so a reply arriving
+        # then stays spooled for the next hook rather than being answered or
+        # refused. Reaching the drop branch therefore proves something else is
+        # armed.
+        relay = FakeRelay([[row("1", '{"0":["something"]}', request_id="aaaaa")]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertIsNone(got)
+        self.assertEqual([i["id"] for i in spool.items()], ["1"], "still spooled")
+        self.assertEqual(relay.sent, [], "and nothing is said about it yet")
 
     def test_a_stale_reply_is_refused_not_delivered(self):
         # The bug seen on the first end-to-end run: a reply from twenty
@@ -572,6 +601,40 @@ class Attachments(unittest.TestCase):
         b = attach._unique("shot.png")
         self.assertNotEqual(a, b)
         self.assertTrue(str(b.name).endswith(".png"), "the extension is kept")
+
+
+class NotifyOnlyHint(unittest.TestCase):
+    """Telling someone their reply cannot land, before they type it.
+
+    In notify-only mode a reply from Cliq reaches nothing: no hook is
+    listening, so it sits in the relay until it expires and the person hears
+    back nothing at all. A message they can answer and one they cannot look
+    identical in the chat, which is exactly how someone ends up replying into
+    the void -- reported after it happened.
+    """
+
+    def test_every_notify_only_message_names_the_mode_and_the_fix(self):
+        for hint in (notify_only_hint(), notify_only_hint(waiting_at_terminal=True)):
+            self.assertIn("notify-only", hint, "says which mode it is in")
+            self.assertIn("/claude-cliq:away on", hint, "and how to change it")
+            self.assertIn("won't reach", hint, "and that a reply goes nowhere")
+
+    def test_the_terminal_wording_does_not_repeat_itself(self):
+        hint = notify_only_hint(waiting_at_terminal=True)
+        self.assertEqual(hint.count("terminal"), 1,
+                         "said twice it reads like a mistake")
+
+    def test_all_three_hooks_use_the_same_wording(self):
+        # ask, permission and stop each had their own string; two of them said
+        # only "waiting for you at the terminal", which does not tell anyone
+        # that replying is pointless or how to fix it.
+        src = {name: (Path(__file__).parent / f"{name}.py").read_text()
+               for name in ("ask", "on_permission", "on_stop")}
+        for name, text in src.items():
+            self.assertIn("notify_only_hint", text,
+                          f"{name} should not carry its own wording")
+            self.assertNotIn('hint="waiting for you at the terminal"', text,
+                             f"{name} still has the old hint")
 
 
 class SessionTitle(unittest.TestCase):

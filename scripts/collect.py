@@ -281,8 +281,17 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             # question's answer into another's waiter.
             log(f"collect: {bound_id} is no longer waiting — dropping")
             taken.append(item["id"])
+            # Point at the live one when there is one. Re-asking a question
+            # leaves two messages that look identical, both offering a button,
+            # and tapping the older is the obvious mistake -- made, and
+            # reported as "why did I receive this?". Saying only "nothing's
+            # waiting" leaves someone to work out which message to use.
+            # Unconditionally: the loop breaks above when nothing is armed,
+            # so reaching here means some OTHER session is still waiting.
             _notify(relay, "Nothing's waiting on that one any more — it was "
-                           "answered, or its window closed.")
+                           "answered, cancelled, or its window closed. "
+                           "There's a newer message still waiting — answer "
+                           "that one.")
             continue
 
         if target:

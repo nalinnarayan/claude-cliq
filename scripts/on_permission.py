@@ -17,7 +17,7 @@ import sys
 import ask
 import hookutil as H
 from cliqlib import (blanket_approval_until, grant_blanket_approval,
-                     is_away, new_request_id, notifies)
+                     is_away, new_request_id, notifies, notify_only_hint)
 
 PREVIEW_CHARS = 700
 
@@ -103,7 +103,7 @@ def main() -> int:
         # decision is what lets that prompt proceed normally.
         H.send(relay, kind="permission", text=text, request_id=rid,
                session_id=session_id, cwd=cwd, expects_reply=False,
-               hint="waiting for you at the terminal")
+               hint=notify_only_hint(waiting_at_terminal=True))
         return 0
 
     mins = int(cfg.blanket_approval_seconds // 60)
