@@ -157,6 +157,35 @@ test('too many questions are truncated to stay inside the input cap', () => {
 // Reading a submission, against the measured shapes.
 // ---------------------------------------------------------------------------
 
+test('a selection survives whatever shape Cliq uses for it', () => {
+  // A radio was MEASURED returning {label, value}. A checkbox was ASSUMED to
+  // return a comma-joined string, and that assumption silently dropped real
+  // selections: an array is an object, so reading .value off it gives
+  // undefined and every pick vanishes. A user chose an option AND typed an
+  // Other answer, and only the typed text arrived.
+  const { valuesOf } = require('../functions/relay/askform.js');
+  assert.deepStrictEqual(valuesOf('0'), ['0']);
+  assert.deepStrictEqual(valuesOf('0,2'), ['0', '2']);
+  assert.deepStrictEqual(valuesOf({ label: 'A', value: '0' }), ['0']);
+  assert.deepStrictEqual(valuesOf(['0', '2']), ['0', '2']);
+  assert.deepStrictEqual(valuesOf([{ label: 'A', value: '0' },
+                                   { label: 'C', value: '2' }]), ['0', '2']);
+  assert.deepStrictEqual(valuesOf([{ label: 'A', value: '0,2' }]), ['0', '2']);
+  assert.deepStrictEqual(valuesOf(null), []);
+  assert.deepStrictEqual(valuesOf(''), []);
+});
+
+test('a multiSelect pick plus an Other answer keeps BOTH', () => {
+  // The reported bug, in every shape a checkbox might use.
+  for (const q0 of [[{ label: 'Image', value: '0' }, { label: '…', value: 'other' }],
+                    ['0', 'other'],
+                    '0,other']) {
+    assert.deepStrictEqual(
+      readSubmission({ q0, q0_other: 'review the list' }),
+      { 0: ['0', 'review the list'] }, JSON.stringify(q0));
+  }
+});
+
 test('a radio returns an object, and its value is taken', () => {
   // Measured: {"q0": {"label": "Option one", "value": "0"}}
   assert.deepStrictEqual(

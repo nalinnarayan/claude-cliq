@@ -140,6 +140,30 @@ function buildForm(requestId, questions, { submitFn = 'claudeCliqAskSubmit' } = 
  * comma-joined list of values, and an empty text input is `""` rather than
  * absent. On a cancel, `values` is missing entirely.
  */
+/**
+ * Pull the selected option values out of whatever Cliq hands back.
+ *
+ * A radio was measured returning an OBJECT, `{label, value}`. A checkbox with
+ * several selections was ASSUMED to return a comma-joined string, and that
+ * assumption lost real selections: if it returns an array instead, an array is
+ * an object, so reading `.value` off it gives undefined and every pick
+ * disappears -- leaving only the typed "Other" text, which is exactly what a
+ * user reported.
+ *
+ * So every plausible shape is handled rather than one guessed at: a string, a
+ * {label, value} object, an array of either, and a comma-joined string inside
+ * any of them.
+ */
+function valuesOf(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.flatMap(valuesOf);
+  if (typeof value === 'object') {
+    return 'value' in value ? valuesOf(value.value) : [];
+  }
+  return String(value).split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+
 function readSubmission(values) {
   const picked = {};
   const other = {};
@@ -151,9 +175,7 @@ function readSubmission(values) {
       if (String(value || '').trim()) other[idx] = String(value).trim();
       continue;
     }
-    const raw = value && typeof value === 'object' ? value.value : value;
-    const parts = String(raw == null ? '' : raw)
-      .split(',').map((x) => x.trim()).filter(Boolean);
+    const parts = valuesOf(value);
     if (parts.length) picked[idx] = parts;
   }
   // "Other" is the chosen option plus whatever was typed; the typed text
@@ -180,9 +202,7 @@ function missingOther(values) {
   for (const [field, value] of Object.entries(values || {})) {
     const m = /^q(\d+)$/.exec(field);
     if (!m) continue;
-    const raw = value && typeof value === 'object' ? value.value : value;
-    const chose = String(raw == null ? '' : raw).split(',').map((x) => x.trim());
-    if (!chose.includes('other')) continue;
+    if (!valuesOf(value).includes('other')) continue;
     const typed = String(values[`q${m[1]}_other`] || '').trim();
     if (!typed) inputs[`q${m[1]}_other`] = 'Type your answer, or pick one of the options.';
   }
@@ -192,7 +212,7 @@ function missingOther(values) {
 }
 
 module.exports = {
-  parseQuestions, buildForm, readSubmission, missingOther,
+  parseQuestions, buildForm, readSubmission, missingOther, valuesOf,
   isMulti, stripMulti, OTHER_LABEL,
   MAX_OPTION_LABEL, MAX_FIELD_LABEL, MAX_HINT, MAX_INPUTS, RADIO_MAX,
 };

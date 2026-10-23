@@ -399,6 +399,19 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], now = Date.n
       }
       const picked = cancelled ? {} : askform.readSubmission(body.values);
       if (!cancelled && !Object.keys(picked).length) {
+        const answered = Object.entries(body.values || {})
+          .filter(([k, v]) => /^q\d+$/.test(k) && v != null && v !== '');
+        if (answered.length) {
+          // Something WAS chosen and none of it parsed, which means Cliq used
+          // a shape we do not handle. Say so and log it: silently losing a
+          // selection is how a multiSelect pick disappeared once already,
+          // leaving only the typed Other text and no error anywhere.
+          console.error('ask-submit: unreadable selection shape',
+                        JSON.stringify(answered).slice(0, 400));
+          return { type: 'form_error',
+                   text: "I couldn't read that selection — this is a bug on my side, "
+                         + 'not yours. Answer at the terminal and tell Claude.' };
+        }
         return { type: 'form_error', text: 'Pick at least one answer.' };
       }
 
