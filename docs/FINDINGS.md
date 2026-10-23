@@ -283,6 +283,35 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### Three things the Stratus SDK does not do the way its types imply
+
+Measured against a live bucket, by uploading a real PNG and fetching it back.
+All three were my errors rather than the SDK's, but each fails in a way that
+points away from the cause.
+
+**`expiryIn` is a count of SECONDS, as a string -- not a duration.** Passing
+`'10m'` is accepted without complaint, forwarded as `expiry_in_seconds=10m`,
+and the signing then fails. `'600'` works.
+
+**`headObject`'s second argument is an options object, not a boolean.**
+`headObject(key, false)` destructures to `throwErr: undefined`, which defaults
+to throwing -- so a missing object surfaced as a raw Catalyst error ("Please
+check whether the input values are correct") instead of the 404 the laptop
+knows how to report. It must be `headObject(key, { throwErr: false })`.
+
+**`deleteObject` is asynchronous.** It answers `"Object Deletion scheduled."`,
+and the object stays downloadable afterwards -- still HTTP 200 with the full
+bytes, with `headObject` agreeing it exists, more than two minutes later. So a
+delete cannot be treated as a precondition for anything. It is harmless here
+only because the key is derived from the account *and* the message id: a
+lingering object can never collide with a later one, and nothing reads it twice.
+
+Two things that did work first time and were worth checking: a pre-signed GET
+is honoured on an **Authenticated** (private) bucket -- which is the whole
+access model -- and **Data Encryption at rest does not interfere with it**. The
+bytes came back identical to those sent, so the encryption toggle costs nothing
+here.
+
 ### Forwarding an image needs three things Cliq does not advertise
 
 A screenshot is the main reason to reply from a phone at all, and until now the

@@ -30,7 +30,12 @@ function harness(opts = {}) {
     async check() { return { names: ['claude-cliq-files'], present: true }; },
     async put(key, body) { objects.set(key, body); return true; },
     async signedGet(key) { return objects.has(key) ? `https://signed.example/${key}` : null; },
-    async remove(key) { return objects.delete(key); },
+    // Mirrors the real contract: Stratus SCHEDULES a deletion rather than
+    // performing one, so this reports the promise, not the absence.
+    async remove(key) {
+      objects.delete(key);
+      return { scheduled: true, said: 'Object Deletion scheduled.' };
+    },
   };
   const relay = createRelay({
     store,
@@ -136,15 +141,31 @@ test('an upload without u or mid is refused', async () => {
     () => h.relay.cliqFile({ headers: secret, query: { u: 'u1' }, body: PNG }), /u and mid/);
 });
 
-test('done deletes the object, so pictures do not accumulate', async () => {
+test('done schedules the delete, so pictures do not accumulate', async () => {
+  // Stratus answers "Object Deletion scheduled." -- deletion is ASYNC, and the
+  // object stays downloadable for a while afterwards (measured: still served,
+  // HTTP 200, with headObject agreeing it exists). Harmless here, because the
+  // key is derived from the account and the message id, so a lingering object
+  // cannot collide with a later one and nothing reads it twice.
   const h = harness();
   const token = await pairUser(h, 'u1', 'u1@example.com');
   await h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'm1' }, body: PNG });
   assert.strictEqual(h.objects.size, 1);
   const res = await h.relay.fileUrl({ headers: bearer(token),
                                       body: { message_id: 'm1', done: true } });
-  assert.deepStrictEqual(res, { ok: true, deleted: true });
-  assert.strictEqual(h.objects.size, 0);
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.scheduled, true, 'reports what Stratus promised');
+});
+
+test('a delete that fails is reported, not thrown', async () => {
+  // The picture is already on the laptop by this point; a lingering object is
+  // not worth failing the call over.
+  const h = harness();
+  const token = await pairUser(h, 'u1', 'u1@example.com');
+  h.files.remove = async () => ({ scheduled: false, said: 'bucket is on fire' });
+  const res = await h.relay.fileUrl({ headers: bearer(token),
+                                      body: { message_id: 'm1', done: true } });
+  assert.deepStrictEqual(res, { ok: true, scheduled: false, said: 'bucket is on fire' });
 });
 
 test('with no bucket configured the file routes say so and nothing else breaks', async () => {

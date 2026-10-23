@@ -18,7 +18,10 @@
 
 const catalyst = require('zcatalyst-sdk-node');
 
-const PUT_TTL = '10m';     // the laptop fetches within seconds of the bell
+// SECONDS, as a string -- not a duration like '10m', which the API takes
+// without complaint as expiry_in_seconds and then refuses to sign. The laptop
+// fetches within a second of the doorbell; this is slack for a cold start.
+const URL_TTL_SECONDS = '600';
 const MAX_BYTES = 10 * 1024 * 1024;
 
 function createFiles({ req, bucketName }) {
@@ -52,23 +55,38 @@ function createFiles({ req, bucketName }) {
       // headObject first: a pre-signed URL is minted happily for a key that
       // does not exist, and the laptop would then download an error document
       // and save it as a .png.
-      const there = await bucket().headObject(key, false);
+      //
+      // The second argument is an OPTIONS OBJECT, not a boolean. Passing
+      // `false` positionally leaves throwErr undefined, which defaults to
+      // throwing -- so a missing object surfaced as a raw Catalyst error
+      // instead of the 404 the laptop knows how to report.
+      const there = await bucket().headObject(key, { throwErr: false });
       if (!there) return null;
-      const res = await bucket().generatePreSignedUrl(key, 'GET', { expiryIn: PUT_TTL });
+      const res = await bucket().generatePreSignedUrl(key, 'GET',
+                                                      { expiryIn: URL_TTL_SECONDS });
       return (res && (res.signature || res.url || res.signed_url)) || null;
     },
 
+    /**
+     * Ask for the object to go away.
+     *
+     * Stratus answers "Object Deletion scheduled." -- deletion is ASYNC, so the
+     * object is still downloadable for a while after a successful call, and
+     * headObject still reports it. That is harmless here: the key is derived
+     * from the account and the message id, so a lingering object can never
+     * collide with a later one, and nothing reads it twice.
+     */
     async remove(key) {
       try {
-        await bucket().deleteObject(key);
-        return true;
+        const res = await bucket().deleteObject(key);
+        return { scheduled: true, said: (res && res.message) || '' };
       } catch (err) {
         // A lingering object is harmless; losing the reply is not.
         console.warn('stratus delete failed', err && err.message);
-        return false;
+        return { scheduled: false, said: (err && err.message) || 'failed' };
       }
     },
   };
 }
 
-module.exports = { createFiles, MAX_BYTES, PUT_TTL };
+module.exports = { createFiles, MAX_BYTES, URL_TTL_SECONDS };

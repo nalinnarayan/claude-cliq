@@ -519,8 +519,10 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       if (!key) throw new HttpError(503, 'no stream secret, so no file key');
 
       if (body && body.done) {
-        await files.remove(key);
-        return { ok: true, deleted: true };
+        // Stratus schedules the deletion rather than performing it, so this
+        // reports what it promised, not that the object has gone.
+        const res = await files.remove(key);
+        return { ok: true, ...res };
       }
       const url = await files.signedGet(key);
       if (!url) throw new HttpError(404, 'no file for that message');
