@@ -543,6 +543,38 @@ with its name and pending question, so the overflow is navigable rather than
 mysterious — that property is now load-bearing and should not be traded away
 for a terser message.
 
+### What a Cliq form submission actually hands back
+
+Measured, because the docs only say "the value defined for this key will be
+available in the function associated with the form" and stop there:
+
+```json
+{"values": {"q0_other": "", "q0": {"label": "Option one", "value": "0"}},
+ "name": "askprobezz9yy",
+ "action": "submit"}
+```
+
+Three things that shape the design:
+
+**The form `name` round-trips.** It came back exactly as sent, so the request
+id rides there and a submission is bound by construction -- the same property
+that makes a button tap unambiguous. Nothing else needed carrying.
+
+**There is an `action` key**, undocumented, reading `submit`. With
+`trigger_on_cancel: true` a dismissal invokes the same handler, so this is
+almost certainly how the two are told apart -- which decides whether an
+abandoned form releases the session or strands it for thirty minutes.
+
+**A radio returns an OBJECT, not a string**: `{label, value}`. Both halves,
+not one. So the exact option label comes back on its own and no index needs
+mapping. The design will still send `value` as the option's index and map it
+back from the original input, because a label can be truncated at Cliq's
+100-character cap while an index cannot -- but the returned label is a free
+cross-check.
+
+**An empty text input is `""`, not absent**, so "Other was chosen and nothing
+typed" is a plain emptiness test rather than a key-presence one.
+
 ### A bot-message button does open a form — but `arguments` cap at 300
 
 The gate for the AskUserQuestion feature, and it passes: tapping a button on a
