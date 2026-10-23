@@ -529,6 +529,12 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       const key = fileKeyFor(cliqUser, messageId);
       if (!key) throw new HttpError(503, 'no stream secret, so no file key');
 
+      // An empty object here means express parsed no body at all -- the shape
+      // a request with nothing attached arrives in. Said plainly, because the
+      // bot repeats this to whoever sent the file.
+      if (!Buffer.isBuffer(body) && typeof body !== 'string') {
+        throw new HttpError(400, 'the upload arrived with no file attached');
+      }
       const got = upload.unwrapUpload(headers['content-type'], body);
       if (!got.bytes.length) throw new HttpError(400, 'no file in the upload');
 

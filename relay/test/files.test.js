@@ -133,6 +133,17 @@ test('an empty upload is refused rather than stored', async () => {
   assert.strictEqual(h.objects.size, 0);
 });
 
+test('a request with no file attached says exactly that', async () => {
+  // Measured live: a video upload reached the relay with NO BODY, and the
+  // bot repeated Node's "The first argument must be of type string or an
+  // instance of Buffer..." to the person who had sent it.
+  const h = harness();
+  await assert.rejects(
+    () => h.relay.cliqFile({ headers: secret, query: { u: 'u1', mid: 'm' }, body: {} }),
+    /no file attached/);
+  assert.strictEqual(h.objects.size, 0);
+});
+
 test('an upload without u or mid is refused', async () => {
   const h = harness();
   await assert.rejects(

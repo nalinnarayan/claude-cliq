@@ -28,6 +28,19 @@ test('a raw body is taken as the file itself', () => {
   assert.ok(got.bytes.equals(PNG));
 });
 
+test('a body that is not bytes is empty, never Buffer.from()ed', () => {
+  // express defaults req.body to {} and leaves it there when a request
+  // carries no body at all. Buffer.from({}) throws "The first argument must
+  // be of type string or an instance of Buffer..." -- an internal Node error
+  // that reached a user in Cliq as the explanation for a failed video upload.
+  for (const junk of [{}, null, undefined, 42, [], { data: 'x' }]) {
+    const got = unwrapUpload('application/octet-stream', junk);
+    assert.strictEqual(got.bytes.length, 0, JSON.stringify(junk));
+  }
+  // A string body is still accepted, since that is a real shape.
+  assert.strictEqual(unwrapUpload('text/plain', 'hello').bytes.toString(), 'hello');
+});
+
 test('a multipart body is unwrapped to the part carrying a filename', () => {
   const body = multipart('abc', [
     { headers: 'Content-Disposition: form-data; name="file"; filename="shot.png"\r\n'

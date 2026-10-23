@@ -63,7 +63,14 @@ function boundaryOf(contentType) {
  * this is a cross-check rather than the source of truth.
  */
 function unwrapUpload(contentType, body) {
-  const buf = Buffer.isBuffer(body) ? body : Buffer.from(body || '');
+  // Never Buffer.from() whatever turns up. When express leaves req.body as
+  // the empty object it defaults to -- which is what a request carrying NO
+  // BODY produces -- Buffer.from({}) throws "The first argument must be of
+  // type string or an instance of Buffer...", an internal Node error that
+  // reached a user in Cliq as the explanation for a failed video.
+  let buf = Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) buf = body;
+  else if (typeof body === 'string') buf = Buffer.from(body);
   const ct = String(contentType || '');
   if (!/^multipart\//i.test(ct)) {
     return { bytes: buf, name: '', contentType: ct, framing: 'raw' };

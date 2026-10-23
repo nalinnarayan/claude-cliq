@@ -322,6 +322,23 @@ about a missing object.
 The general lesson is the one worth keeping: a success flag that is never
 checked is not a success flag, and `files:` has no exception to tell you.
 
+**And Deluge sends an empty request rather than failing.** With the check in
+place, the retried video answered
+`The first argument must be of type string or an instance of Buffer...` --
+Node's own error, repeated to the person who sent the file. Reproduced
+exactly by posting with **no body at all**: express defaults `req.body` to
+`{}` and leaves it there, and `Buffer.from({})` throws precisely that.
+
+So for that video `invokeurl ... files:` reached the relay carrying **nothing**
+-- it did not refuse, it sent an empty request. Both guards are now in place:
+`unwrapUpload` treats anything that is not bytes or a string as empty rather
+than calling `Buffer.from` on it, and the route answers
+`the upload arrived with no file attached`.
+
+Also settled in passing: a genuine **multipart** upload unwraps correctly
+against the live relay (`framing: multipart`, bytes intact), as does a raw
+one. Both framings are proven, so whichever Deluge uses, the bytes survive.
+
 ### A long message was being cut twice, and the visible cut was the smaller one
 
 Reported with a screenshot of a turn ending `the notify-only hints, …`. The
