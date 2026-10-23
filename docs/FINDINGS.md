@@ -283,6 +283,45 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### An upload tops out at 10 MB, and a failed one looked like a success
+
+A video was sent as a test and came back as
+`could not be downloaded: HTTP 404 no file for that message` -- a confusing
+message for a real failure. Measured against the live relay:
+
+```
+ 4 MB  200 {"ok":true,...}
+ 9 MB  200 {"ok":true,...}
+11 MB  413 PayloadTooLargeError (an HTML page)
+25 MB  413 PayloadTooLargeError
+```
+
+The ceiling is `express.raw`'s limit, which is ours. It is not raised lightly:
+the function runs on **128 MB** and buffers the whole body in memory before
+Stratus buffers it again, so a generous limit trades a clean refusal for an
+out-of-memory crash. Phone video starts around 50 MB and goes up, so video is
+out of scope for this pipeline as built. Lifting it properly means Deluge
+uploading **straight to a pre-signed Stratus PUT**, so the bytes never pass
+through the function at all -- possible, since `generatePreSignedUrl(key,
+'PUT')` exists, but it needs Deluge's `files:` to send a raw body rather than
+multipart, which is still unconfirmed.
+
+Two separate faults made this read as a mystery rather than a size problem:
+
+**Express answers an oversized body with an HTML error page**, which Deluge
+cannot parse. The route now returns `{"error":"file too large","limit_mb":10}`.
+
+**`invokeurl` does not raise on an HTTP error.** The handler took a 413 as
+success, sent the file name anyway, the relay appended its marker on trust,
+and the laptop was left to 404 on an object that had never been stored. The
+handler now **confirms** the upload by checking the response body for
+`ok`, and on anything else drops the file name and says why -- so the
+reply arrives with "could not be forwarded: file too large" instead of a 404
+about a missing object.
+
+The general lesson is the one worth keeping: a success flag that is never
+checked is not a success flag, and `files:` has no exception to tell you.
+
 ### A long message was being cut twice, and the visible cut was the smaller one
 
 Reported with a screenshot of a turn ending `the notify-only hints, …`. The

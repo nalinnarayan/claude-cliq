@@ -230,4 +230,19 @@ app.post('/', dsAccess);
 
 app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
 
+// Express answers an oversized body with an HTML error page, which the Deluge
+// handler cannot read -- so it treated a 413 as success, claimed a file had
+// been forwarded, and left the laptop to 404 on an object that was never
+// stored. JSON, with the limit named, so the bot can say what actually went
+// wrong.
+app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+    return res.status(413).json({
+      error: 'file too large',
+      limit_mb: Math.round(MAX_BYTES / (1024 * 1024)),
+    });
+  }
+  return next(err);
+});
+
 module.exports = app;

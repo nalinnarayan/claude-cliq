@@ -101,6 +101,7 @@ try
 	{
 		try
 		{
+			fname = "the file";
 			finfo = md.get("file");
 			if(finfo != null)
 			{
@@ -108,6 +109,7 @@ try
 				if(fn != null)
 				{
 					fileName = fn.toString();
+					fname = fileName;
 				}
 			}
 			// A list in some shapes, the file object itself in others; asking
@@ -128,13 +130,44 @@ try
 				files: fobj
 				headers: {"X-Relay-Secret": "REPLACE_WITH_RELAY_INBOUND_SECRET"}
 			];
+			// The upload must be CONFIRMED, not assumed. invokeurl does not
+			// raise on an HTTP error, so a rejected upload -- a video over the
+			// 10 MB ceiling, say -- looked exactly like a successful one: the
+			// file name was sent, the relay appended its marker, and the
+			// laptop was left to 404 on an object that had never been stored.
+			// The relay answers {"ok":true,...} on success and {"error":...}
+			// otherwise, so the body is the thing to check.
+			ok = false;
+			why = "";
+			try
+			{
+				ok = up.get("ok");
+				if (ok != true)
+				{
+					why = up.get("error").toString();
+				}
+			}
+			catch (pe)
+			{
+				// Not even a map -- an HTML error page, or a gateway reply.
+				ok = false;
+			}
+			if (ok != true)
+			{
+				if (why == "")
+				{
+					why = "the relay would not take it";
+				}
+				fileName = "";
+				body = body + " (" + fname + " came with this but could not be forwarded: " + why + ")";
+			}
 		}
 		catch (fe)
 		{
-			// The picture is lost; the message is not. The text still goes,
-			// and says why there is nothing to look at.
+			// The file is lost; the message is not. The text still goes, and
+			// says why there is nothing to look at.
 			fileName = "";
-			body = body + " (an image came with this, but it could not be forwarded: " + fe.toString() + ")";
+			body = body + " (a file came with this, but it could not be forwarded: " + fe.toString() + ")";
 		}
 	}
 

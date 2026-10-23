@@ -199,6 +199,11 @@ curl -s -X POST "$RELAY/files-check" -H "X-Relay-Secret: $RELAY_INBOUND_SECRET"
 Leave `STRATUS_BUCKET` empty and attachments are simply not forwarded: the
 caption still arrives, the file routes answer 503, and nothing else changes.
 
+Attachments cap at **10 MB**. The function runs on 128 MB and buffers the whole
+body in memory, so a larger limit trades a clean refusal for an out-of-memory
+crash; video is effectively out of scope. An oversized file is reported in the
+chat ("could not be forwarded: file too large") and the caption still arrives.
+
 Catalyst env vars are **not documented as encrypted at rest** — treat them as
 config, and rotate the zapikey if the project is ever shared.
 
