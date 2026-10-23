@@ -214,6 +214,55 @@ class Routing(unittest.TestCase):
         self.assertIsNotNone(got, "waited long enough; send it")
         self.assertIn("/tmp/a.png", got["text"])
 
+    def test_a_third_picture_still_uploading_is_waited_for(self):
+        # The 2+1 split, measured: two images arrived a second apart and went
+        # out together, then the third landed 18 seconds later and arrived on
+        # its own. A fixed window from the FIRST released as soon as one
+        # sibling appeared; the wait has to measure from the LAST arrival.
+        self.arm("aaaaa")
+        cfg = Config(stale_after_seconds=1800, attachment_quiet_seconds=12.0,
+                     attachment_grace_seconds=120.0)
+        path = Path(os.environ["CLAUDE_CLIQ_HOME"]) / "spool.json"
+
+        def age_spool(seconds):
+            items = json.loads(path.read_text())
+            for i in items:
+                i["spooled_at"] = time.time() - seconds
+            path.write_text(json.dumps(items))
+
+        spool.add([row("1", "[image attached: /tmp/a.png]", age_s=2),
+                   row("2", "[image attached: /tmp/b.png]", age_s=1)])
+        relay = FakeRelay()
+        self.assertIsNone(collect._route_spooled(cfg, relay, "aaaaa"),
+                          "two held, not sent -- a third may be uploading")
+
+        # The third lands while they are still held.
+        spool.add([row("3", "[image attached: /tmp/c.png]", age_s=0)])
+        self.assertIsNone(collect._route_spooled(cfg, relay, "aaaaa"),
+                          "still held; uploads are evidently continuing")
+
+        # Uploads stop and the quiet period passes.
+        age_spool(20)
+        got = collect._route_spooled(cfg, relay, "aaaaa")
+        self.assertIsNotNone(got, "quiet for long enough; send it")
+        for name in ("/tmp/a.png", "/tmp/b.png", "/tmp/c.png"):
+            self.assertIn(name, got["text"], f"{name} travelled with the rest")
+        self.assertEqual(spool.items(), [], "and nothing trails behind")
+
+    def test_the_ceiling_stops_an_endless_trickle(self):
+        # A picture every ten seconds forever must not hold the session for
+        # the whole window.
+        self.arm("aaaaa")
+        cfg = Config(stale_after_seconds=1800, attachment_quiet_seconds=12.0,
+                     attachment_grace_seconds=30.0)
+        spool.add([row("1", "[image attached: /tmp/a.png]", age_s=0)])
+        path = Path(os.environ["CLAUDE_CLIQ_HOME"]) / "spool.json"
+        items = json.loads(path.read_text())
+        items[0]["spooled_at"] = time.time() - 40        # past the ceiling
+        path.write_text(json.dumps(items))
+        self.assertIsNotNone(collect._route_spooled(cfg, FakeRelay(), "aaaaa"),
+                             "held long enough; stop waiting")
+
     def test_a_typed_reply_is_never_held(self):
         # The grace must cost nothing for the ordinary case.
         self.arm("aaaaa")

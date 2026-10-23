@@ -295,8 +295,16 @@ for the case where both land in one fetch (measured: the same second), and
 does nothing at all when the first is delivered before the second exists --
 which is the common case on mobile data.
 
-So a reply carrying an attachment is now **held for up to 30 seconds** in case
-more follow. Three things make that affordable:
+So a reply carrying an attachment is held in case more follow -- and the wait
+is a **quiet period after the most recent arrival**, not a window from the
+first. That distinction was learned the hard way: a fixed window released as
+soon as one sibling appeared, so three pictures went out as two and then one,
+the third having taken a further 18 seconds to upload. Measuring from the last
+arrival keeps extending while uploads continue and delivers once they stop --
+and it makes a lone picture quicker, since it no longer waits out a window
+sized for the worst case.
+
+Three things make that affordable:
 
 - It only applies to a reply that brought a file. A typed reply is handed over
   immediately, so the ordinary case is unchanged.

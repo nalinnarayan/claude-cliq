@@ -354,20 +354,25 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             # together: that is one message split by Cliq, not several
             # answers, so hand it over whole.
             siblings = _coalesce(item, spool.items(), armed, taken)
-            if not siblings and _has_attachment(text) and len(armed) == 1:
-                # Hold it briefly. Pictures sent in one go arrive one at a
-                # time -- two were measured 23 seconds apart -- so answering
-                # the first immediately is what made a multi-image send look
-                # like a single image. The wait is spent listening on the
-                # doorbell the next one will ring, so it costs no reads.
-                waited = time.time() - float(item.get("spooled_at") or 0)
-                if waited < cfg.attachment_grace_seconds:
-                    global _hold_until
-                    _hold_until = (float(item.get("spooled_at") or time.time())
-                                   + cfg.attachment_grace_seconds)
-                    log(f"collect: holding an attachment for up to "
-                        f"{cfg.attachment_grace_seconds - waited:.0f}s "
-                        f"in case more follow")
+            if _has_attachment(text) and len(armed) == 1:
+                # Wait for QUIET, not for a fixed window. Pictures sent in one
+                # go arrive one at a time -- two were measured 23 seconds
+                # apart, and the third of three a further 18 -- so a window
+                # from the first released as soon as one sibling appeared and
+                # split three into two and then one. Measuring from the most
+                # recent arrival keeps extending while uploads continue.
+                group = [item] + siblings
+                newest = max(float(g.get("spooled_at") or 0) for g in group)
+                first = min(float(g.get("spooled_at") or 0) for g in group)
+                now = time.time()
+                quiet_for = now - newest
+                global _hold_until
+                if (quiet_for < cfg.attachment_quiet_seconds
+                        and now - first < cfg.attachment_grace_seconds):
+                    _hold_until = min(newest + cfg.attachment_quiet_seconds,
+                                      first + cfg.attachment_grace_seconds)
+                    log(f"collect: holding {len(group)} attachment(s) for "
+                        f"{_hold_until - now:.0f}s more in case another follows")
                     continue
             if siblings:
                 # Sorted as a whole, anchor included: the spool is iterated in

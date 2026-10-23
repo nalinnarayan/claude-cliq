@@ -74,18 +74,25 @@ class Config:
     # raised above this number in settings.json so the limit the user hears
     # about is the one they actually hit.
     max_block_streak: int = 100
-    # How long to wait for the rest of a multi-attachment send.
+    # Waiting for the rest of a multi-attachment send.
     #
     # Pictures sent together do NOT arrive together: a phone uploads them one
-    # at a time, and two sent in one go were measured arriving 23 seconds
-    # apart. Without a pause the session consumes the first and answers before
-    # the rest exist, which is what "I sent those two together" looked like
-    # from the other end.
+    # at a time. Two sent in one go were measured 23 seconds apart, and the
+    # third of three arrived 18 seconds after the first two.
     #
-    # Costs nothing when a reply has no attachment, and costs no extra reads
-    # when it does: the wait is spent listening on the doorbell that the next
-    # picture will ring anyway.
-    attachment_grace_seconds: float = 30.0
+    # So the wait is a QUIET PERIOD after the most recent attachment, not a
+    # window from the first. A fixed window released as soon as one sibling
+    # turned up, which split three pictures into two and then one; measuring
+    # from the last arrival instead keeps extending while uploads continue and
+    # delivers once they stop. It also makes a LONE picture quicker than the
+    # fixed window did.
+    #
+    # Costs nothing when a reply has no attachment, and no extra reads when it
+    # does: the wait is spent listening on the doorbell the next picture rings.
+    attachment_quiet_seconds: float = 12.0
+    # A hard ceiling from the first attachment, so a slow trickle still goes
+    # out rather than holding the session indefinitely.
+    attachment_grace_seconds: float = 120.0
     # One long-poll leg. Catalyst caps a function at 30s, so stay under it.
     poll_seconds: int = 25
     # How a laptop learns a reply has arrived.
