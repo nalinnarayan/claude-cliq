@@ -19,9 +19,13 @@
 const catalyst = require('zcatalyst-sdk-node');
 
 // SECONDS, as a string -- not a duration like '10m', which the API takes
-// without complaint as expiry_in_seconds and then refuses to sign. The laptop
-// fetches within a second of the doorbell; this is slack for a cold start.
-const URL_TTL_SECONDS = '600';
+// without complaint as expiry_in_seconds and then refuses to sign.
+//
+// Short on purpose. The laptop fetches within a second of the doorbell, so
+// this is only slack for a cold start -- and since a deleted object keeps
+// being served from the edge until its URL expires, this expiry IS the
+// cleanup guarantee.
+const URL_TTL_SECONDS = '120';
 const MAX_BYTES = 10 * 1024 * 1024;
 
 function createFiles({ req, bucketName }) {
@@ -35,12 +39,30 @@ function createFiles({ req, bucketName }) {
     configured,
     bucketName,
 
-    /** Does the bucket actually exist? Answered without the console. */
+    /**
+     * Does the bucket exist, and what is sitting in it?
+     *
+     * The object count matters because `deleteObject` only SCHEDULES a
+     * deletion and an object was measured still present ten minutes later --
+     * so this is the only way to tell whether anything is actually being
+     * swept, short of opening the console.
+     */
     async check() {
       const stratus = catalyst.initialize(req).stratus();
       const buckets = await stratus.listBuckets();
       const names = buckets.map((b) => (b.getName ? b.getName() : String(b)));
-      return { names, present: names.includes(bucketName) };
+      const present = names.includes(bucketName);
+      let holding = null;
+      if (present) {
+        try {
+          const d = await bucket().getDetails();
+          holding = { objects: Number(d.objects_count || 0),
+                      bytes: Number(d.size_in_bytes || 0) };
+        } catch (err) {
+          holding = { error: (err && err.message) || 'details unavailable' };
+        }
+      }
+      return { names, present, holding };
     },
 
     async put(key, body) {
@@ -79,6 +101,16 @@ function createFiles({ req, bucketName }) {
     async remove(key) {
       try {
         const res = await bucket().deleteObject(key);
+        // The store empties promptly -- the bucket reported 0 objects while a
+        // signed URL for a deleted key was still returning HTTP 200 with the
+        // full bytes, so what lingers is the edge cache, not the object.
+        //
+        // purgeCache() would drop it, but the SDK sends that call as
+        // CREDENTIAL_USER.admin and a function initialised from request
+        // headers runs in user scope, so it can never succeed here. Rather
+        // than make a call that always fails, the exposure is bounded by the
+        // signed URL's own short expiry instead -- and such a URL is only ever
+        // issued to the device that owns the picture.
         return { scheduled: true, said: (res && res.message) || '' };
       } catch (err) {
         // A lingering object is harmless; losing the reply is not.

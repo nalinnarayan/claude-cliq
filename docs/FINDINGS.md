@@ -283,6 +283,25 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### A form field label is 50 characters, and there is nowhere else to put text
+
+Reported from a phone -- "Why are the questions truncated here in the form?" --
+with a screenshot showing `Which of the remaining loose end…`. The 50-character
+cap on a field `label` is both documented and measured, and a Cliq form has no
+section header, description or note element: the per-field `hint` is the only
+other text it will render. So the cap cannot be worked around.
+
+What was actually wrong is that the hint repeated the *same* opening 50
+characters the label already showed, so a long question was truncated twice and
+its tail appeared nowhere at all. The hint now carries the REMAINDER, cut at a
+word boundary, with ellipses meeting across the two -- about 150 characters
+between them.
+
+Worth stating plainly: this is a display concern only. The answer travels as an
+option INDEX and the laptop maps it back to the original label from
+`tool_input`, so a truncated label never reaches Claude. The full question is
+also still in the message the form was opened from.
+
 ### Three things the Stratus SDK does not do the way its types imply
 
 Measured against a live bucket, by uploading a real PNG and fetching it back.
@@ -299,10 +318,22 @@ to throwing -- so a missing object surfaced as a raw Catalyst error ("Please
 check whether the input values are correct") instead of the 404 the laptop
 knows how to report. It must be `headObject(key, { throwErr: false })`.
 
-**`deleteObject` is asynchronous.** It answers `"Object Deletion scheduled."`,
-and the object stays downloadable afterwards -- still HTTP 200 with the full
-bytes, with `headObject` agreeing it exists, more than two minutes later. So a
-delete cannot be treated as a precondition for anything. It is harmless here
+**`deleteObject` is asynchronous, and what lingers is the CDN.** It answers
+`"Object Deletion scheduled."`, and a signed URL for the deleted key kept
+returning HTTP 200 with the full bytes for the whole ten minutes it was
+watched. But `getDetails()` reported **0 objects, 0 bytes** at the same time --
+so the store empties promptly and the edge (`zohostratus.in`) is what goes on
+serving. Storage does not accumulate.
+
+`purgeCache()` is the obvious remedy and cannot be used: the SDK sends it as
+`CREDENTIAL_USER.admin`, and a function initialised from request headers runs
+in user scope. Rather than keep a call that always fails, the exposure is
+bounded by the signed URL's own expiry, cut from 600s to **120s** -- the laptop
+fetches within a second of the doorbell, so the rest was only slack for a cold
+start, and that expiry is now the actual cleanup guarantee. Such a URL is only
+ever issued to the device that owns the picture.
+
+A delete therefore cannot be a precondition for anything. That is harmless here
 only because the key is derived from the account *and* the message id: a
 lingering object can never collide with a later one, and nothing reads it twice.
 

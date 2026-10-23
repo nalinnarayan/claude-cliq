@@ -5,7 +5,7 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 const {
   parseQuestions, buildForm, readSubmission, missingOther,
-  isMulti, RADIO_MAX, MAX_FIELD_LABEL, MAX_OPTION_LABEL, MAX_INPUTS,
+  isMulti, splitLabel, RADIO_MAX, MAX_FIELD_LABEL, MAX_OPTION_LABEL, MAX_INPUTS,
 } = require('../functions/relay/askform.js');
 
 const SCRIPTS = path.join(__dirname, '..', '..', 'scripts');
@@ -131,6 +131,49 @@ test('a multiSelect question becomes a checkbox', () => {
   assert.strictEqual(form.inputs[0].type, 'checkbox');
   assert.strictEqual(form.inputs[0].label, 'Q', 'the marker is not shown to the reader');
   assert.strictEqual(form.inputs[0].mandatory, false, 'choosing none is allowed');
+});
+
+test('a long question continues into the hint instead of repeating itself', () => {
+  // Reported from a phone: "Why are the questions truncated here in the form?"
+  // A field label is capped at 50 -- documented and measured, and a Cliq form
+  // has no section header or description element -- so the cap cannot be
+  // lifted. What was wrong is that the hint repeated the SAME opening 50
+  // characters, so a long question was truncated twice and its tail appeared
+  // nowhere at all.
+  const q = 'Which of the remaining loose ends should I pick up next?';
+  const { label, hint } = splitLabel(q);
+  assert.ok(label.length <= MAX_FIELD_LABEL);
+  assert.ok(label.endsWith('…'), 'the cut is visible');
+  assert.ok(!label.endsWith(' …'), 'and lands on a word boundary');
+  assert.strictEqual(hint, '…up next?', 'the hint carries the REST');
+  // Rejoined with the space back: the split lands ON a space, which both
+  // sides trim, so the ellipses meet without one.
+  assert.strictEqual(`${label.slice(0, -1)} ${hint.slice(1)}`, q,
+    'between them they spell the whole question');
+});
+
+test('a short question is not ellipsised and keeps a useful hint', () => {
+  assert.deepStrictEqual(splitLabel('Which store?'),
+                         { label: 'Which store?', hint: 'Pick one' });
+});
+
+test('a question with no spaces still fits the cap', () => {
+  const { label, hint } = splitLabel('A'.repeat(200));
+  assert.ok(label.length <= MAX_FIELD_LABEL, `label ${label.length}`);
+  assert.ok(hint.length <= 100, `hint ${hint.length}`);
+});
+
+test('truncation never reaches Claude, only the screen', () => {
+  // The answer is carried by INDEX, and the laptop maps it back to the
+  // original label from tool_input -- so a label cut at 50 characters is a
+  // display concern and nothing more.
+  const form = buildForm('abcde', [{
+    question: 'Which of the remaining loose ends should I pick up next?',
+    options: ['Image forwarding', 'Inbound idempotency'],
+  }]);
+  assert.deepStrictEqual(form.inputs[0].options.slice(0, 2),
+    [{ label: 'Image forwarding', value: '0' },
+     { label: 'Inbound idempotency', value: '1' }]);
 });
 
 test('every field respects the measured caps', () => {

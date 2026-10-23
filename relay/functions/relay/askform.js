@@ -37,6 +37,38 @@ const RADIO_MAX = 5;
 const OTHER_LABEL = 'Something else — type it below';
 
 /**
+ * Split a question across the label and the hint beside it.
+ *
+ * A field label is capped at 50 characters -- documented AND measured, so
+ * there is no lifting it, and a Cliq form has no section header or
+ * description element to put the rest in. The per-field hint is the only
+ * other text there is.
+ *
+ * The first version filled that hint with the SAME opening 50 characters the
+ * label already showed, so a long question was truncated twice and its tail
+ * appeared nowhere. This cuts at a word boundary and gives the hint the
+ * REMAINDER, so between them they carry about 150 characters.
+ *
+ * The full text is in the message the form was opened from either way -- that
+ * is where someone reads the question properly. This is about not stranding
+ * the end of it.
+ */
+function splitLabel(question) {
+  const text = String(question || '').trim();
+  if (text.length <= MAX_FIELD_LABEL) return { label: text, hint: 'Pick one' };
+
+  // Break on the last space that leaves room for the ellipsis, so a label
+  // ends on a word rather than mid-syllable.
+  const room = MAX_FIELD_LABEL - 1;
+  const cut = text.lastIndexOf(' ', room);
+  const at = cut > MAX_FIELD_LABEL / 2 ? cut : room;
+  return {
+    label: `${text.slice(0, at).trimEnd()}…`,
+    hint: `…${text.slice(at).trim()}`.slice(0, MAX_HINT),
+  };
+}
+
+/**
  * Read questions back out of the message text.
  *
  * Returns [{question, options:[label]}]. Descriptions are dropped: they exist
@@ -99,11 +131,12 @@ function buildForm(requestId, questions, { submitFn = 'claudeCliqAskSubmit' } = 
       options.push({ label: OTHER_LABEL, value: 'other' });
     }
 
+    const split = splitLabel(label);
     inputs.push({
       type: multi ? 'checkbox' : 'radio',
       name: `q${i}`,
-      label: label.slice(0, MAX_FIELD_LABEL),
-      hint: label.length > MAX_FIELD_LABEL ? label.slice(0, MAX_HINT) : 'Pick one',
+      label: split.label,
+      hint: split.hint,
       mandatory: !multi,
       options,
       ...(multi ? { max_selections: options.length } : {}),
@@ -212,7 +245,7 @@ function missingOther(values) {
 }
 
 module.exports = {
-  parseQuestions, buildForm, readSubmission, missingOther, valuesOf,
+  parseQuestions, buildForm, readSubmission, missingOther, valuesOf, splitLabel,
   isMulti, stripMulti, OTHER_LABEL,
   MAX_OPTION_LABEL, MAX_FIELD_LABEL, MAX_HINT, MAX_INPUTS, RADIO_MAX,
 };

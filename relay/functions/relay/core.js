@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const { splitTables } = require('./format');
 const askform = require('./askform');
 const upload = require('./upload');
+const { URL_TTL_SECONDS } = require('./stratus');
 
 // Outbound messages end with "(id xxxxx)", so a swipe-reply hands that text
 // straight back in replied_message.text. Pulling the id out of it binds the
@@ -496,6 +497,13 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       if (!got.bytes.length) throw new HttpError(400, 'no file in the upload');
 
       await files.put(key, got.bytes);
+      // How Deluge frames `files:` is undocumented, and this is the only place
+      // it is visible -- the handler discards whatever it gets back. Logged
+      // (shape only, never bytes or a key) so the answer is recorded rather
+      // than inferred again.
+      console.log(`cliq-file: framing=${got.framing} bytes=${got.bytes.length} `
+                  + `kind=${upload.sniff(got.bytes) || 'unknown'} `
+                  + `declared=${JSON.stringify(headers['content-type'] || '')}`);
       // `framing` and `sniff` are returned because the handler logs nothing
       // and this is the only place the shape Deluge actually sends is visible.
       return { ok: true, bytes: got.bytes.length, framing: got.framing,
@@ -526,7 +534,7 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       }
       const url = await files.signedGet(key);
       if (!url) throw new HttpError(404, 'no file for that message');
-      return { url, expires_in: 600 };
+      return { url, expires_in: Number(URL_TTL_SECONDS) };
     },
 
     /** POST /files-check -- does the bucket exist? Saves a console trip. */
