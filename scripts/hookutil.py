@@ -21,7 +21,12 @@ from cliqlib import (Config, Relay, RelayError, is_away, load_config, log,
                      send_allowed,
                      new_request_id)
 
-MAX_SUMMARY = 1400          # Cliq caps a message at 5000 chars; stay well under
+# Was 1400 "to stay well under" Cliq's 5000-character message cap -- which cut
+# the end off any substantial turn and appended an ellipsis, losing the part a
+# message usually builds to. The relay now splits a long message across several
+# Cliq messages, so this only has to stay inside what the relay will actually
+# deliver: MAX_PART * MAX_PARTS, less room for the heading and the hint.
+MAX_SUMMARY = 20000
 
 
 def read_payload() -> dict:
@@ -78,10 +83,20 @@ def defuse_cliq_markup(text: str) -> str:
 
 
 def summarize(text: str, limit: int = MAX_SUMMARY) -> str:
+    """Prepare a turn for Cliq. Only a backstop truncates now.
+
+    The relay splits anything long across several messages, so this no longer
+    trims to one message's worth. The cut that remains is a guard against
+    something pathological, not a formatting decision, and it says what it is
+    rather than trailing off into an ellipsis.
+    """
     text = defuse_cliq_markup(text).strip()
     if len(text) <= limit:
         return text
-    return text[:limit].rsplit(" ", 1)[0] + " …"
+    return (text[:limit].rsplit(" ", 1)[0]
+            + f"\n\n[cut here — the message was {len(text)} characters, "
+              f"past the {limit} this bridge will carry. The rest is at the "
+              f"terminal.]")
 
 
 def context_line(cwd: str) -> str:

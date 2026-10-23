@@ -283,6 +283,35 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### A long message was being cut twice, and the visible cut was the smaller one
+
+Reported with a screenshot of a turn ending `the notify-only hints, …`. The
+obvious suspect was the relay's 4500-character guard under Cliq's 5000 cap. It
+was not: the laptop's `summarize()` trimmed to **1400** characters first, "to
+stay well under" the Cliq limit, so the relay never saw the rest. Worth
+remembering when two limits exist for the same thing -- the one that fires is
+not always the one written down near the symptom.
+
+A message now splits across several Cliq messages instead of being cut. Three
+things that had to be got right:
+
+**The hint goes on the LAST part, appended after the split, not before it.**
+It carries the `(id xxxxx)` that a swipe-reply binds to. Appended to the text
+beforehand it would travel as ordinary prose, and be the first thing lost when
+a message overflowed -- so replies would break on exactly the longest messages,
+which are the ones most worth replying to.
+
+**Buttons and tables attach once, to the last part.** Otherwise a three-part
+turn asks the same question three times.
+
+**The number of parts is bounded.** Cliq's 50/min is shared across the whole
+deployment and a 429 locks everyone out for ten minutes, so five parts
+(~22,500 characters) is the ceiling. What does not fit is counted and
+reported, not dropped silently -- the failure this whole change is about.
+
+A code fence split across a boundary is closed and reopened, or everything
+after the break renders as one code block.
+
 ### A form field label is 50 characters, and there is nowhere else to put text
 
 Reported from a phone -- "Why are the questions truncated here in the form?" --

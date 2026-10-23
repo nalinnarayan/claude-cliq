@@ -11,7 +11,7 @@
  */
 
 const crypto = require('crypto');
-const { splitTables } = require('./format');
+const { splitTables, splitForCliq, MAX_PART } = require('./format');
 const askform = require('./askform');
 const upload = require('./upload');
 const { URL_TTL_SECONDS } = require('./stratus');
@@ -30,7 +30,9 @@ const MAX_WAIT_S = 25;                      // Catalyst kills a function at 30s
 // read, and 3s of extra latency is imperceptible to someone who just
 // typed a message, so this is the cheapest knob in the system.
 const POLL_TICK_MS = Number(process.env.POLL_TICK_MS || 3000);
-const MAX_TEXT = 4500;                      // Cliq caps a message at 5000
+// INBOUND only -- a guard on what goes into a Pending row. Outbound text is
+// no longer capped; it is split across messages instead (see notify).
+const MAX_TEXT = 4500;
 
 // Cliq's own ceiling is 50/min for bot messages, and it is shared across
 
@@ -224,7 +226,10 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
      */
     async notify({ headers, body }) {
       const device = await requireDevice(store, headers);
-      const text = String(body.text || '').slice(0, MAX_TEXT);
+      // NOT truncated. A long turn is sent as several messages instead -- the
+      // end of a message is usually where the point is, and cutting it left no
+      // way to ask for the rest.
+      const text = String(body.text || '');
       if (!text) throw new HttpError(400, 'text required');
 
       // A per-send counter used to sit here guarding Cliq's shared 50/min.
@@ -241,11 +246,20 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       // realistic failure -- one runaway machine -- but NOT the real scaling
       // risk of fifty people active at once. See docs/FINDINGS.md.
       const hint = String(body.hint || '').slice(0, 300);
-      const composed = hint ? `${text}\n\n_${hint}_` : text;
 
       // v3 renders Markdown in `text` but not tables, so lift those out into
       // native table slides and send the prose as-is.
-      const { text: prose, slides } = splitTables(composed);
+      const { text: prose, slides } = splitTables(text);
+
+      // The hint is appended to the LAST part, not to the text before
+      // splitting: it carries the "(id xxxxx)" a swipe-reply binds to, so if
+      // it rode along with the prose it would be the first thing lost when a
+      // message overflowed -- breaking replies on exactly the longest ones.
+      const hintBlock = hint ? `\n\n_${hint}_` : '';
+      const budget = Math.max(500, MAX_PART - hintBlock.length - 80);
+      const { parts, dropped } = splitForCliq(prose, { limit: budget });
+      const pieces = parts.length ? parts : ['(see below)'];
+
       const extras = {};
       if (slides.length) extras.slides = slides;
       // Cliq allows at most five buttons on a message.
@@ -253,7 +267,20 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         extras.buttons = buildButtons(String(body.request_id), body.answers,
                                       { fnName, fnOwner, askFnName });
       }
-      await cliq.dm(device.email, prose || '(see below)', extras);
+
+      // Sequentially, and in order: these are separate messages, and a reader
+      // on a phone needs them to arrive the way they were written. Buttons,
+      // tables and the hint go on the LAST one only, so a question is asked
+      // once, at the end, where the reader has the whole picture.
+      for (let i = 0; i < pieces.length; i += 1) {
+        const last = i === pieces.length - 1;
+        const marker = pieces.length > 1 ? `_(${i + 1}/${pieces.length})_\n\n` : '';
+        const tail = last && dropped
+          ? `\n\n_(${dropped} more characters did not fit — the rest is at the terminal.)_`
+          : '';
+        await cliq.dm(device.email, marker + pieces[i] + tail + (last ? hintBlock : ''),
+                      last ? extras : {});
+      }
 
       // The Sessions row that used to be written here is gone with the
       // daemon. It was a SELECT plus an UPDATE on every notification and

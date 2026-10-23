@@ -24,6 +24,96 @@
  * Pure: no Cliq or network imports, so the parsing is directly testable.
  */
 
+// A Cliq message caps at 5000 characters; stay under it with room for the
+// hint and the "(id xxxxx)" footer that a swipe-reply binds to.
+const MAX_PART = 4500;
+// A long turn becomes several messages rather than one truncated one -- but
+// not without bound: Cliq's 50/min is shared across the whole deployment, and
+// a 429 locks everyone out for ten minutes. Five parts is ~22,500 characters,
+// far more than any real message, and what exceeds it is reported rather than
+// silently dropped.
+const MAX_PARTS = 5;
+
+const FENCE = /^```/;
+
+/**
+ * Break a long message into Cliq-sized parts, preferring paragraph breaks.
+ *
+ * Replaces truncation. The old behaviour cut the text and appended an
+ * ellipsis, so the end of a message -- which is where the point usually is --
+ * was lost with no way to ask for it.
+ *
+ * Splits at a blank line where it can, a line break if it must, and a space as
+ * a last resort. A code fence left open by a split is closed and reopened, or
+ * the rest of the message renders as one code block.
+ *
+ * Returns {parts, dropped}: `dropped` is how many characters did not fit in
+ * MAX_PARTS, so the caller can say so instead of pretending.
+ */
+function splitForCliq(text, { limit = MAX_PART, maxParts = MAX_PARTS } = {}) {
+  const body = String(text || '');
+  if (body.length <= limit) return { parts: body ? [body] : [], dropped: 0 };
+
+  // Blocks, keeping the blank line that separated them.
+  const blocks = body.split(/\n{2,}/);
+  const parts = [];
+  let current = '';
+
+  const flush = () => {
+    if (current.trim()) parts.push(current.trimEnd());
+    current = '';
+  };
+  const push = (chunk) => {
+    if (!current) { current = chunk; return; }
+    if (current.length + 2 + chunk.length <= limit) {
+      current += `\n\n${chunk}`;
+    } else {
+      flush();
+      current = chunk;
+    }
+  };
+
+  for (const block of blocks) {
+    if (block.length <= limit) { push(block); continue; }
+
+    // Too big on its own: break it by lines, then by spaces.
+    let line = '';
+    for (const raw of block.split('\n')) {
+      if (line.length + 1 + raw.length <= limit) {
+        line = line ? `${line}\n${raw}` : raw;
+        continue;
+      }
+      if (line) { push(line); line = ''; }
+      let rest = raw;
+      while (rest.length > limit) {
+        const cut = rest.lastIndexOf(' ', limit);
+        const at = cut > limit * 0.6 ? cut : limit;
+        push(rest.slice(0, at).trimEnd());
+        rest = rest.slice(at).trimStart();
+      }
+      line = rest;
+    }
+    if (line) push(line);
+  }
+  flush();
+
+  // Repair fences broken by a split, so the remainder is not swallowed into
+  // one code block.
+  let open = false;
+  const mended = parts.map((part) => {
+    let out = part;
+    if (open) out = `\`\`\`\n${out}`;
+    const fences = out.split('\n').filter((l) => FENCE.test(l.trim())).length;
+    open = fences % 2 === 1;
+    if (open) out = `${out}\n\`\`\``;
+    return out;
+  });
+
+  const kept = mended.slice(0, maxParts);
+  const dropped = mended.slice(maxParts).join('\n\n').length;
+  return { parts: kept, dropped };
+}
+
 const MAX_SLIDES = 5;          // keep a phone message readable
 const MAX_ROWS = 20;           // a long table is unreadable on a phone anyway
 
@@ -185,4 +275,5 @@ function splitTables(markdown) {
 }
 
 module.exports = { splitTables, toCliqMarkdown, splitRow, normaliseHeaders,
+  splitForCliq, MAX_PART, MAX_PARTS,
                    MAX_SLIDES, MAX_ROWS };

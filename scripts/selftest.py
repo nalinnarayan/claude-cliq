@@ -603,6 +603,29 @@ class Attachments(unittest.TestCase):
         self.assertTrue(str(b.name).endswith(".png"), "the extension is kept")
 
 
+class LongMessages(unittest.TestCase):
+    """A long turn must reach Cliq whole, not cut with an ellipsis.
+
+    summarize() trimmed to 1400 characters "to stay well under" Cliq's 5000,
+    which cut the end off any substantial turn -- the part a message usually
+    builds to. The relay splits long text across several messages now, so this
+    side only has to stay inside what the relay will actually deliver.
+    """
+
+    def test_an_ordinary_long_turn_is_passed_through_whole(self):
+        import hookutil as H
+        text = "\n\n".join(f"Paragraph {i}. " + "x" * 200 for i in range(40))
+        self.assertGreater(len(text), 5000, "longer than one Cliq message")
+        self.assertEqual(H.summarize(text), text, "nothing trimmed")
+
+    def test_the_backstop_says_what_it_did_instead_of_trailing_off(self):
+        import hookutil as H
+        out = H.summarize("word " * 6000)
+        self.assertIn("cut here", out, "names itself as a cut")
+        self.assertIn("at the terminal", out, "and says where the rest is")
+        self.assertFalse(out.endswith("…"), "an ellipsis explains nothing")
+
+
 class NotifyOnlyHint(unittest.TestCase):
     """Telling someone their reply cannot land, before they type it.
 
