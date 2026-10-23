@@ -64,6 +64,18 @@ class _BudgetSpent(Exception):
 # whole session to the terminal.
 FETCH_TIMEOUT = 45
 
+# Several Cliq messages that are really one reply.
+#
+# Sending three images at once arrives as three separate messages, each with
+# its own file. A waiting session consumes the first and the rest sit in the
+# spool until they go stale -- so two of three pictures silently never arrive,
+# and a later session risks being handed one as a stray.
+#
+# Replies this close together, to the same session, are one thing the person
+# said. Deliberately short: gluing a reply from ten minutes ago onto a fresh
+# one would be a different and worse bug.
+COALESCE_WINDOW = 90.0
+
 
 class _Leadership:
     """Non-blocking flock. Absent means someone else is leading."""
@@ -219,6 +231,37 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         f"a plain reply belongs to")
 
 
+def _coalesce(first: dict, items: list[dict], armed: list[dict],
+              taken: list[str]) -> list[dict]:
+    """The other replies that belong with `first`, in arrival order.
+
+    Only when exactly ONE session is waiting: with several, which reply
+    belongs to which is precisely the question the chooser exists to ask, and
+    joining them would answer it by guessing.
+
+    Only unbound replies, too. One that names a request belongs to that
+    request, and a file or a form answer is not part of someone's next
+    sentence.
+    """
+    if len(armed) != 1:
+        return []
+    # `ts` -- when the PERSON sent it -- not `spooled_at`, which is when we
+    # fetched it. Everything in one fetch shares a spool time, so keying on it
+    # made the window admit a reply from ten minutes earlier and left the
+    # order arbitrary. The clock that matters here is theirs.
+    anchor_at = float(first.get("ts") or 0)
+    out = []
+    for other in items:
+        if other["id"] == first["id"] or other["id"] in taken:
+            continue
+        if other.get("request_id") or other.get("needs_pick"):
+            continue
+        if abs(float(other.get("ts") or 0) - anchor_at) > COALESCE_WINDOW:
+            continue
+        out.append(other)
+    return out
+
+
 def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
     """Hand everything spooled to whichever waiter it belongs to.
 
@@ -297,7 +340,19 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
         if target:
             rid, payload = waiter.route(text, [target], bound=True)
         else:
+            # One session waiting, several unbound replies that arrived
+            # together: that is one message split by Cliq, not several
+            # answers, so hand it over whole.
+            siblings = _coalesce(item, spool.items(), armed, taken)
+            if siblings:
+                # Sorted as a whole, anchor included: the spool is iterated in
+                # fetch order, which is not the order they were sent.
+                group = sorted([item] + siblings, key=lambda i: float(i.get("ts") or 0))
+                text = "\n\n".join(g["text"] for g in group)
+                log(f"collect: joined {len(group)} replies that arrived together")
             rid, payload = waiter.route(text, armed)
+            if rid:
+                taken.extend(s["id"] for s in siblings)
 
         if not rid or not waiter.resolve(rid, payload):
             # Nothing matched. With one waiter that cannot happen, so this is

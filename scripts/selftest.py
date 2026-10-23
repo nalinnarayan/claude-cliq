@@ -167,6 +167,67 @@ class Routing(unittest.TestCase):
         self.assertTrue(waiter.armed("aaaaa"), "the other is untouched")
         self.assertFalse(handed_over("aaaaa"), "and not answered by mistake")
 
+    def test_images_sent_together_arrive_as_one_reply(self):
+        # Reported live: three images at once arrive as three separate Cliq
+        # messages, each with its own file. The session consumed the first and
+        # the other two sat in the spool -- so pictures silently never arrived,
+        # and a later session risked being handed one as a stray.
+        self.arm("aaaaa")
+        relay = FakeRelay([[row("1", "look at these"),
+                            row("2", "[image attached: /tmp/a.png]"),
+                            row("3", "[image attached: /tmp/b.png]")]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertIsNotNone(got, "the session is answered")
+        for fragment in ("look at these", "/tmp/a.png", "/tmp/b.png"):
+            self.assertIn(fragment, got["text"], f"{fragment} reached the session")
+        self.assertEqual(spool.items(), [], "and nothing is left stranded")
+
+    def test_replies_are_joined_in_the_order_they_arrived(self):
+        self.arm("aaaaa")
+        relay = FakeRelay([[row("2", "second", age_s=10),
+                            row("1", "first", age_s=20)]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertEqual(got["text"], "first\n\nsecond")
+
+    def test_two_sessions_waiting_are_never_coalesced(self):
+        # With several waiting, which reply belongs to which is exactly the
+        # question the chooser exists to ask. Joining them would answer it by
+        # guessing -- the one thing this must never do.
+        self.arm("aaaaa")
+        self.arm("bbbbb")
+        relay = FakeRelay([[row("1", "one"), row("2", "two")]])
+        collect._drain(self.cfg, relay, "aaaaa")
+        self.assertFalse(handed_over("bbbbb"), "nothing was guessed at")
+        joined = [i for i in spool.items() if "one" in i["text"] and "two" in i["text"]]
+        self.assertEqual(joined, [], "the two were not glued together")
+
+    def test_a_reply_from_long_ago_is_not_glued_onto_a_fresh_one(self):
+        # The window is short on purpose: these are meant to be one message
+        # split by Cliq, not a conversation stitched together.
+        self.arm("aaaaa")
+        spool.add([{"id": "old", "text": "from earlier", "request_id": "",
+                    "ts": (time.time() - 600) * 1000.0}])
+        for item in spool.items():
+            self.assertEqual(item["id"], "old")
+        relay = FakeRelay([[row("new", "just now", age_s=1)]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertIsNotNone(got)
+        # Which of the two is delivered first is the spool's existing
+        # oldest-first behaviour and not what this is about. What matters is
+        # that they are not JOINED: ten minutes apart is two things said, and
+        # the one left over waits its turn rather than being absorbed.
+        self.assertNotIn("\n\n", got["text"], "the two were not glued together")
+        self.assertEqual(len(spool.items()), 1, "the other is still queued, not lost")
+
+    def test_a_bound_reply_is_not_swept_into_someone_elses_answer(self):
+        # A form answer or a chooser tap names its request; it is not part of
+        # the next sentence somebody types.
+        self.arm("aaaaa")
+        relay = FakeRelay([[row("1", "plain words"),
+                            row("2", '{"0":["picked"]}', request_id="bbbbb")]])
+        got = collect._drain(self.cfg, relay, "aaaaa")
+        self.assertNotIn("picked", got["text"], "the bound reply stayed out of it")
+
     def test_tapping_a_dead_question_points_at_the_live_one(self):
         # Reported from a phone: "Why did I receive this nothing is waiting
         # message?" -- a question had been asked, interrupted at the terminal,
