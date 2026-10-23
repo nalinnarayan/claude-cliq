@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import pathlib
 import sys
@@ -149,6 +150,9 @@ class Leadership(unittest.TestCase):
 class Routing(unittest.TestCase):
     def setUp(self):
         clean()
+        # Module state, so a test that holds a reply must not change what the
+        # next test sees.
+        collect._hold_until = 0.0
         self.cfg = Config(stale_after_seconds=1800)
 
     def arm(self, rid, kind="finished"):
@@ -181,6 +185,52 @@ class Routing(unittest.TestCase):
         for fragment in ("look at these", "/tmp/a.png", "/tmp/b.png"):
             self.assertIn(fragment, got["text"], f"{fragment} reached the session")
         self.assertEqual(spool.items(), [], "and nothing is left stranded")
+
+    def test_an_image_is_held_briefly_for_the_ones_still_uploading(self):
+        # "This was also a multi-image case. I sent those two together." They
+        # did not ARRIVE together: a phone uploads one at a time, and two sent
+        # in one go were measured 23 seconds apart. Answering the first
+        # immediately is what made a pair look like a single image.
+        self.arm("aaaaa")
+        cfg = Config(stale_after_seconds=1800, attachment_grace_seconds=30.0)
+        relay = FakeRelay([[row("1", "[image attached: /tmp/a.png]", age_s=1)]])
+        got = collect._drain(cfg, relay, "aaaaa")
+        self.assertIsNone(got, "not handed over while more may be coming")
+        self.assertEqual(len(spool.items()), 1, "still held, not dropped")
+        self.assertGreater(collect._hold_until, time.time(),
+                           "and the leader knows when to come back")
+
+    def test_the_held_image_goes_out_once_the_grace_is_up(self):
+        self.arm("aaaaa")
+        cfg = Config(stale_after_seconds=1800, attachment_grace_seconds=30.0)
+        # Spooled a minute ago, so the grace has already passed.
+        relay = FakeRelay()
+        spool.add([row("1", "[image attached: /tmp/a.png]", age_s=60)])
+        path = Path(os.environ["CLAUDE_CLIQ_HOME"]) / "spool.json"
+        items = json.loads(path.read_text())
+        items[0]["spooled_at"] = time.time() - 60
+        path.write_text(json.dumps(items))
+        got = collect._route_spooled(cfg, relay, "aaaaa")
+        self.assertIsNotNone(got, "waited long enough; send it")
+        self.assertIn("/tmp/a.png", got["text"])
+
+    def test_a_typed_reply_is_never_held(self):
+        # The grace must cost nothing for the ordinary case.
+        self.arm("aaaaa")
+        cfg = Config(stale_after_seconds=1800, attachment_grace_seconds=30.0)
+        relay = FakeRelay([[row("1", "just words", age_s=1)]])
+        got = collect._drain(cfg, relay, "aaaaa")
+        self.assertIsNotNone(got, "a typed reply goes straight through")
+        self.assertEqual(got["text"], "just words")
+
+    def test_nothing_is_held_when_two_sessions_are_waiting(self):
+        # Holding would delay a reply the chooser has to ask about anyway.
+        self.arm("aaaaa")
+        self.arm("bbbbb")
+        cfg = Config(stale_after_seconds=1800, attachment_grace_seconds=30.0)
+        relay = FakeRelay([[row("1", "[image attached: /tmp/a.png]", age_s=1)]])
+        collect._drain(cfg, relay, "aaaaa")
+        self.assertEqual(collect._hold_until, 0.0, "no hold with several waiting")
 
     def test_replies_are_joined_in_the_order_they_arrived(self):
         self.arm("aaaaa")

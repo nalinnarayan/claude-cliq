@@ -283,6 +283,34 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### Pictures sent together do not arrive together
+
+"I sent those two together" -- and they were, but the relay saw them **23
+seconds apart**, in separate fetches. A phone uploads attachments one at a
+time, so Cliq delivers them as separate messages, separated by however long
+the upload took.
+
+That broke a fix for the same bug. Grouping whatever is already spooled works
+for the case where both land in one fetch (measured: the same second), and
+does nothing at all when the first is delivered before the second exists --
+which is the common case on mobile data.
+
+So a reply carrying an attachment is now **held for up to 30 seconds** in case
+more follow. Three things make that affordable:
+
+- It only applies to a reply that brought a file. A typed reply is handed over
+  immediately, so the ordinary case is unchanged.
+- The wait is spent listening on the doorbell the next picture will ring
+  anyway, so it costs **no extra reads**. The leader simply stops listening at
+  the end of the grace instead of at the end of the window, and routes what is
+  spooled without fetching.
+- It is skipped entirely when more than one session is waiting, since holding
+  would only delay a reply the chooser has to ask about regardless.
+
+The general shape is worth remembering: "sent together" is a fact about the
+sender, and nothing downstream preserves it. Any grouping has to be done on
+arrival, with a wait, or not at all.
+
 ### An upload tops out at 10 MB, and a failed one looked like a success
 
 A video was sent as a test and came back as

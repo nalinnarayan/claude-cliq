@@ -44,6 +44,10 @@ SERVED_PATH = STATE_DIR / "served.json"
 
 _mode = "?"
 
+# When a reply is being held back for the rest of a multi-attachment send.
+# Read by the leader so it can stop listening in time to deliver it.
+_hold_until = 0.0
+
 # How long a follower waits on its own waiter file before checking whether
 # leadership has fallen vacant. Short enough that a leader dying is noticed
 # quickly, long enough to cost nothing.
@@ -231,6 +235,12 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         f"a plain reply belongs to")
 
 
+def _has_attachment(text: str) -> bool:
+    """Did this reply bring a file? That is what makes more likely to follow."""
+    return "[image attached:" in text or "[file attached:" in text \
+        or "[document attached:" in text or "[attached:" in text
+
+
 def _coalesce(first: dict, items: list[dict], armed: list[dict],
               taken: list[str]) -> list[dict]:
     """The other replies that belong with `first`, in arrival order.
@@ -344,6 +354,21 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             # together: that is one message split by Cliq, not several
             # answers, so hand it over whole.
             siblings = _coalesce(item, spool.items(), armed, taken)
+            if not siblings and _has_attachment(text) and len(armed) == 1:
+                # Hold it briefly. Pictures sent in one go arrive one at a
+                # time -- two were measured 23 seconds apart -- so answering
+                # the first immediately is what made a multi-image send look
+                # like a single image. The wait is spent listening on the
+                # doorbell the next one will ring, so it costs no reads.
+                waited = time.time() - float(item.get("spooled_at") or 0)
+                if waited < cfg.attachment_grace_seconds:
+                    global _hold_until
+                    _hold_until = (float(item.get("spooled_at") or time.time())
+                                   + cfg.attachment_grace_seconds)
+                    log(f"collect: holding an attachment for up to "
+                        f"{cfg.attachment_grace_seconds - waited:.0f}s "
+                        f"in case more follow")
+                    continue
             if siblings:
                 # Sorted as a whole, anchor included: the spool is iterated in
                 # fetch order, which is not the order they were sent.
@@ -353,6 +378,7 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             rid, payload = waiter.route(text, armed)
             if rid:
                 taken.extend(s["id"] for s in siblings)
+                _hold_until = 0.0
 
         if not rid or not waiter.resolve(rid, payload):
             # Nothing matched. With one waiter that cannot happen, so this is
@@ -436,9 +462,22 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
     # because close() preserves the subscriber session by design, so the name
     # is still taken. Retrying with the SAME ticket is what actually works,
     # which is what the transient SESSION_EXPIRED needs anyway.
-    return wake.listen({"url": ticket["url"], "key": ticket["key"],
-                        "wss_id": ticket["wss_id"]},
-                       deadline=deadline, on_wake=on_wake, log=log)
+    creds = {"url": ticket["url"], "key": ticket["key"], "wss_id": ticket["wss_id"]}
+    while True:
+        # Stop early when a reply is being held for the rest of a
+        # multi-attachment send, so the hold can be handed over on time rather
+        # than sitting until the whole window expires.
+        until = min(deadline, _hold_until) if _hold_until else deadline
+        got = wake.listen(creds, deadline=until, on_wake=on_wake, log=log)
+        if got is not None:
+            return got
+        if time.time() >= deadline or not _hold_until:
+            return None
+        # The grace is up. Route what is spooled WITHOUT fetching -- a read
+        # here would buy nothing, since the doorbell never rang.
+        got = _route_spooled(cfg, relay, want)
+        if got is not None:
+            return got
 
 
 def wait_for(cfg: Config, relay: Relay, request_id: str,
