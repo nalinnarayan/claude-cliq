@@ -58,7 +58,10 @@ action.put("mode", "immediate");
 form = Map();
 form.put("type", "form");
 form.put("title", "Cliq form probe");
-form.put("name", "askprobe");
+// A recognisable value, because the real design rides the REQUEST ID here.
+// If the submit handler does not echo this back, the binding scheme needs a
+// different carrier and the form layout changes.
+form.put("name", "askprobezz9yy");
 form.put("hint", "gate test for claude-cliq");
 form.put("button_label", "Send");
 form.put("version", 1);
