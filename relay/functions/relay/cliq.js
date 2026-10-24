@@ -19,6 +19,9 @@
  *   - unknown body keys are a hard error, so send only what is accepted
  */
 
+const { buildMultipart } = require('./multipart');
+
+// v3 JSON only. The file endpoint is v2 multipart and ignores this entirely.
 const ALLOWED_KEYS = ['slides', 'buttons', 'card', 'bot'];
 
 function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch }) {
@@ -59,6 +62,53 @@ function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch })
       if (!res.ok) {
         // 429 here means we tripped Cliq's 50/min and everyone is locked
         // out for 10 minutes. Surface it loudly rather than retrying.
+        const err = new Error(`cliq ${res.status}: ${raw.slice(0, 300)}`);
+        err.status = res.status;
+        throw err;
+      }
+      try { return JSON.parse(raw); } catch { return { raw }; }
+    },
+
+    /**
+     * Send a FILE to one subscriber's DM, as the bot.
+     *
+     * A different API version from `dm()` on purpose: v3 `/messages` takes
+     * JSON and hard-errors on an unknown key, so a file cannot ride there.
+     * v2 `/bots/<bot>/files` is multipart and was measured accepting the same
+     * webhook zapikey -- no OAuth token is needed.
+     *
+     * Measured against the live endpoint, none of it documented:
+     *   comments  must be a JSON **array**; a bare string is refused
+     *   title     refused outright as "an extra param in the query"
+     *   buttons   refused even as a plain array, though `comments` accepts
+     *             the identical shape -- so the choices that go with a
+     *             document have to follow as a separate dm().
+     */
+    async dmFile(zuid, { filename, bytes, contentType, caption = '' }) {
+      if (!botName || !zapikey) {
+        const err = new Error('relay is not connected to a Cliq bot yet '
+                            + '(CLIQ_BOT_NAME / CLIQ_ZAPIKEY unset)');
+        err.status = 503;
+        throw err;
+      }
+
+      const url = `${base}/api/v2/bots/${encodeURIComponent(botName)}/files`
+                + `?zapikey=${encodeURIComponent(zapikey)}`
+                + `&user_id=${encodeURIComponent(zuid)}`;
+
+      const { body, contentType: bodyType } = buildMultipart({
+        // JSON.stringify of an array, because that is what it wants.
+        fields: caption ? { comments: JSON.stringify([caption]) } : {},
+        files: [{ name: 'files', filename, contentType, bytes }],
+      });
+
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'Content-Type': bodyType },
+        body,
+      });
+      const raw = await res.text();
+      if (!res.ok) {
         const err = new Error(`cliq ${res.status}: ${raw.slice(0, 300)}`);
         err.status = res.status;
         throw err;

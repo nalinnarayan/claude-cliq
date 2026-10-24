@@ -283,6 +283,41 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### A bot CAN send a file, on a different API version with its own rules
+
+I had concluded it could not: the v3 `/bots/<bot>/messages` call takes JSON,
+hard-errors on unknown keys, and has no file field. That was true and
+irrelevant -- the answer is on v2.
+
+```
+POST /api/v2/bots/<bot>/files?zapikey=<token>&user_id=<zuid>
+     multipart/form-data: files    50 MB, up to 10
+```
+
+**The webhook zapikey authenticates it.** No OAuth token, no new credential --
+the first probe returned a 400 about formatting rather than a 401, which is
+what settled it. The response echoes the recipients: `{"user_ids":["..."]}`.
+
+Three things measured there, none of them documented:
+
+- **`comments` must be a JSON ARRAY.** A bare string is refused with "Value
+  passed for the 'comments' key should be an JSONArray".
+- **`title` is refused outright** -- "'title' is an extra param in the query"
+  -- despite being listed as an optional parameter.
+- **`buttons` is refused too**, even as a plain array, although `comments`
+  accepts the identical shape. So a file message cannot carry buttons, and
+  anything the reader must DO about a document has to follow as a separate v3
+  message.
+
+Note the recipient differs between the two calls: v3 `dm()` addresses the
+**email**, v2 `dmFile()` takes `user_id`, the **ZUID**. The device row carries
+both, so nothing new had to be stored.
+
+The lesson is narrower than "check the docs": I had checked them, and the
+section I needed was past the truncation point of what I read. "Not documented"
+and "not documented in the part I read" are different claims, and only one of
+them was mine to make.
+
 ### After a server close the ticket is spent, and the old advice was stale
 
 The doorbell warning came back the day after a closed socket was made

@@ -199,6 +199,13 @@ curl -s -X POST "$RELAY/files-check" -H "X-Relay-Secret: $RELAY_INBOUND_SECRET"
 Leave `STRATUS_BUCKET` empty and attachments are simply not forwarded: the
 caption still arrives, the file routes answer 503, and nothing else changes.
 
+When Claude finishes a plan, the plan itself is posted as a **file** you can
+open, followed by the three choices the terminal offers — start work
+auto-accepting edits, start work reviewing each edit, or keep planning — with a
+box for what should change. Approving sets the session's permission mode to
+match the choice. A plan sent this way is a file in your own DM, so it stays in
+Cliq rather than being deleted on delivery the way a message body is.
+
 Attachments cap at **10 MB**. The function runs on 128 MB and buffers the whole
 body in memory, so a larger limit trades a clean refusal for an out-of-memory
 crash; video is effectively out of scope. An oversized file is reported in the

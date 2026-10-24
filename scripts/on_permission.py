@@ -16,6 +16,7 @@ import sys
 
 import ask
 import hookutil as H
+import plan
 from cliqlib import (blanket_approval_until, grant_blanket_approval,
                      is_away, new_request_id, notifies, notify_only_hint)
 
@@ -80,6 +81,13 @@ def main() -> int:
     # which was wrong but harmless; now it is silent and wrong.
     if tool == "AskUserQuestion":
         return ask.handle(cfg, relay, payload)
+
+    # Same reasoning for a plan, and the same placement: ABOVE the blanket
+    # check. "Allow everything" was granted about permissions -- a plan is a
+    # decision, and approving one unread because of a button tapped twenty
+    # minutes ago is exactly what that approval was not for.
+    if tool == "ExitPlanMode":
+        return plan.handle(cfg, relay, payload)
 
     # Already said "all" for this session: approve silently. Pinging Cliq
     # again would defeat the entire point of having asked.

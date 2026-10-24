@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ["CLAUDE_CLIQ_HOME"] = tempfile.mkdtemp(prefix="cliq-selftest-")
 
 import attach           # noqa: E402
+import plan             # noqa: E402
 import collect          # noqa: E402
 import wake             # noqa: E402
 import spool            # noqa: E402
@@ -809,6 +810,68 @@ class LongMessages(unittest.TestCase):
         self.assertIn("cut here", out, "names itself as a cut")
         self.assertIn("at the terminal", out, "and says where the rest is")
         self.assertFalse(out.endswith("…"), "an ellipsis explains nothing")
+
+
+class PlanMode(unittest.TestCase):
+    """Approving a plan from Cliq.
+
+    The plan used to stay on the laptop: Cliq showed "Approve the plan and
+    start work" and Allow/Deny, so you approved something you could not read
+    with choices that did not match the terminal's.
+    """
+
+    def test_the_plan_is_found_even_though_the_schema_is_undocumented(self):
+        self.assertEqual(plan.plan_of({"tool_input": {"plan": "# Title\nbody"}}),
+                         "# Title\nbody")
+        # No `plan` key: the longest string is overwhelmingly the plan.
+        self.assertEqual(
+            plan.plan_of({"tool_input": {"note": "x", "content": "a much longer thing"}}),
+            "a much longer thing")
+        for junk in ({}, {"tool_input": None}, {"tool_input": {}}, {"tool_input": []}):
+            self.assertEqual(plan.plan_of(junk), "")
+
+    def test_the_choices_parse_with_the_relay_grammar(self):
+        # render_choices() must invert in askform.parseQuestions, or tapping
+        # Answer produces an empty form. The relay's own test asserts the
+        # other direction; this one pins the shape here.
+        text = plan.render_choices()
+        self.assertTrue(text.startswith("*") and "*" in text[1:])
+        numbered = [l for l in text.splitlines() if l[:2] in ("1.", "2.", "3.")]
+        self.assertEqual(len(numbered), len(plan.CHOICES))
+
+    def test_approving_sets_the_mode_the_option_describes(self):
+        payload = {"tool_input": {"plan": "# P"}}
+        auto = plan.decision(payload, "auto", "")["hookSpecificOutput"]["decision"]
+        self.assertEqual(auto["behavior"], "allow")
+        self.assertEqual(auto["updatedInput"], {"plan": "# P"},
+                         "updatedInput REPLACES the input, so it must be carried")
+        self.assertEqual(auto["updatedPermissions"],
+                         [{"type": "setMode", "mode": "acceptEdits",
+                           "destination": "session"}])
+
+        review = plan.decision(payload, "review", "")["hookSpecificOutput"]["decision"]
+        self.assertEqual(review["updatedPermissions"][0]["mode"], "default",
+                         "sent explicitly -- the session is still in plan mode")
+
+    def test_keep_planning_carries_the_feedback_to_claude(self):
+        # The old deny sent the fixed string "Denied from Zoho Cliq", so
+        # "keep planning" reached Claude with nothing to act on.
+        d = plan.decision({"tool_input": {}}, "keep",
+                          "split step 3 in two")["hookSpecificOutput"]["decision"]
+        self.assertEqual(d["behavior"], "deny")
+        self.assertEqual(d["message"], "split step 3 in two")
+        self.assertNotIn("interrupt", d, "keep planning, do not stop the turn")
+        self.assertNotIn("reason", d, "`reason` is silently dropped on this branch")
+
+    def test_keep_planning_without_feedback_still_says_something(self):
+        d = plan.decision({"tool_input": {}}, "keep", "")["hookSpecificOutput"]["decision"]
+        self.assertEqual(d["behavior"], "deny")
+        self.assertTrue(d["message"].strip(), "an empty message explains nothing")
+
+    def test_a_caption_describes_the_document(self):
+        self.assertEqual(plan.caption_for("# Sending a plan\n\nbody"), "Sending a plan")
+        self.assertEqual(plan.caption_for("\n\n   \n"), "A plan to look over.")
+        self.assertLessEqual(len(plan.caption_for("#  " + "x" * 900)), plan.MAX_CAPTION)
 
 
 class NotifyOnlyHint(unittest.TestCase):

@@ -81,6 +81,12 @@ app.post('/peek',   route((r, req) => r.peek({ headers: req.headers })));
 app.post('/await',  route((r, req) => r.await_({ headers: req.headers, body: req.body, sleep })));
 app.post('/stream-ticket', route((r, req) => r.streamTicket({ headers: req.headers })));
 app.post('/file-url',    route((r, req) => r.fileUrl({ headers: req.headers, body: req.body })));
+// A document for the paired user's DM. Raw like /cliq-file: the global
+// express.json is 256kb and is not for bytes. Metadata rides in the query so
+// the body stays exactly the file.
+app.post('/notify-file',
+  express.raw({ type: '*/*', limit: MAX_BYTES }),
+  route((r, req) => r.notifyFile({ headers: req.headers, query: req.query, body: req.body })));
 app.post('/files-check', route((r, req) => r.filesCheck({ headers: req.headers })));
 // The ONE route that is not JSON: Deluge uploads an attachment's bytes here.
 // express.json() above leaves a non-JSON content type alone, so the body is

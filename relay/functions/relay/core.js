@@ -291,6 +291,34 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
     },
 
     /**
+     * POST /notify-file -- put a document in the paired user's DM.
+     *
+     * For a plan: too long to read as chat text, and the point of it is to be
+     * opened and read rather than scrolled past. The choices that go with it
+     * follow as an ordinary notify(), because the file endpoint refuses
+     * `buttons` (measured) -- so this call deliberately carries no decision.
+     *
+     * The recipient is the device's own account, as everywhere else. Note it
+     * is the ZUID here, not the email dm() uses: the v2 file endpoint takes
+     * `user_id`.
+     */
+    async notifyFile({ headers, query, body }) {
+      const device = await requireDevice(store, headers);
+      if (!Buffer.isBuffer(body) && typeof body !== 'string') {
+        throw new HttpError(400, 'the document arrived with no body');
+      }
+      const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
+      if (!bytes.length) throw new HttpError(400, 'the document is empty');
+
+      const filename = String((query && query.name) || 'document.md').slice(0, 120);
+      const caption = String((query && query.caption) || '').slice(0, 300);
+      const contentType = String((query && query.type) || 'text/markdown');
+
+      await cliq.dmFile(device.cliq_user, { filename, bytes, contentType, caption });
+      return { ok: true, bytes: bytes.length, name: filename };
+    },
+
+    /**
      * POST /peek -- what is queued, without consuming it.
      *
      * Exists because diagnosing with /await destroys the evidence: the

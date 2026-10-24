@@ -42,6 +42,33 @@ test('questions survive a round trip through the message text', () => {
   assert.ok(isMulti(parsed[1].question), 'the multiSelect marker survives');
 });
 
+test("the PLAN choices parse with the same grammar", () => {
+  // plan.py renders its three choices in ask.render()'s grammar precisely so
+  // the form machinery is reused unchanged -- no new Deluge function and no
+  // new relay route. If that grammar drifts, tapping Answer on a plan opens
+  // an empty form, so the coupling is pinned from both ends.
+  const rendered = execFileSync('python3', ['-c', `
+import sys
+sys.path.insert(0, ${JSON.stringify(SCRIPTS)})
+import plan
+print(plan.render_choices(), end="")
+`], { encoding: 'utf8' });
+
+  const parsed = parseQuestions(rendered);
+  assert.strictEqual(parsed.length, 1, 'one question');
+  assert.match(parsed[0].question, /plan/i);
+  assert.strictEqual(parsed[0].options.length, 3, 'the three terminal choices');
+  assert.ok(!isMulti(parsed[0].question), 'picking two of them is meaningless');
+
+  // And the form built from it is answerable: three options plus Other fits
+  // inside the radio ceiling of five.
+  const form = buildForm('abcde', parsed, { submitFn: 'claudeCliqAskSubmit' });
+  assert.strictEqual(form.inputs[0].type, 'radio');
+  assert.strictEqual(form.inputs[0].options.length, 4, 'three plus Other');
+  assert.deepStrictEqual(form.inputs[0].options.slice(0, 3).map((o) => o.value),
+                         ['0', '1', '2'], 'carried by index, as plan.py reads them');
+});
+
 test('option descriptions are dropped, not mistaken for options', () => {
   // They exist for the person reading the message; a form has nowhere to put
   // them. Indented and italic so the parser can tell them apart.

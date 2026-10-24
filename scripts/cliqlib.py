@@ -451,6 +451,37 @@ class Relay:
         """
         return self._request("/stream-ticket", {}, timeout=30)
 
+    def notify_file(self, *, name: str, data: bytes, caption: str = "",
+                    content_type: str = "text/markdown") -> dict:
+        """Put a document in the paired user's DM.
+
+        For a plan: too long to read as chat text, and meant to be opened
+        rather than scrolled past. No recipient argument, as everywhere else
+        -- the relay resolves it from the device token.
+
+        The file endpoint refuses `buttons` (measured), so whatever the person
+        is meant to DO about the document has to follow as a normal notify().
+        """
+        from urllib.parse import urlencode
+        qs = urlencode({"name": name, "caption": caption, "type": content_type})
+        url = f"{self.cfg.relay_url}/notify-file?{qs}"
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Content-Type", content_type)
+        if self.cfg.device_token:
+            req.add_header("X-Device-Token", self.cfg.device_token)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode() or "{}")
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode()[:400]
+            except Exception:
+                pass
+            raise RelayError(f"HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RelayError(f"unreachable: {exc.reason}") from exc
+
     # -- attachments -----------------------------------------------------
     def file_url(self, message_id: str) -> str:
         """A short-lived download URL for the file that came with a reply.
