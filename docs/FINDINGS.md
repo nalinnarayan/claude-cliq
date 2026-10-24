@@ -318,6 +318,58 @@ section I needed was past the truncation point of what I read. "Not documented"
 and "not documented in the part I read" are different claims, and only one of
 them was mine to make.
 
+### The same bug three times, because "fatal" was the default
+
+Reported as a plan-mode bug: answering from Cliq did nothing until a second
+message was sent. It was not plan mode -- a controlled repro there worked, the
+hook emitting its decision in the same second the answer arrived. The log
+showed the real thing:
+
+```
+11:44:50  wake: subscribed
+          (no fetch at all for 17 minutes)
+11:48:15  wake: connection closed by the server - reconnecting (1/3)
+11:48:50  collect: fetched 2          <- the answer AND the next message
+```
+
+The socket reported itself **subscribed and delivered nothing**. The second
+message did not cause the first to register; both arrived together once the
+connection recovered, which from the terminal is indistinguishable.
+
+That is the third instance of one bug. `WakeError` defaulted to
+`retryable=False`, so every failure nobody had explicitly classified abandoned
+the doorbell and fell back to polling:
+
+1. a ticket spent by a server close -- fixed when replies went slow
+2. a polite close frame (1001 "going away", 1012 "service restart") -- found
+   by reading, never yet hit
+3. a subscription that goes silent -- this one
+
+Each cost the cheap transport and was invisible, because the fallback works.
+
+**The default is now `retryable=True`**, with the fatal cases named at the
+raise: authentication failed, missing key, blocked, a close with code 1008, and
+a `Sec-WebSocket-Accept` mismatch. The argument is the asymmetry, not
+optimism: `listen()` already caps retries at four attempts with backoff --
+about seven seconds -- and then falls back to polling anyway. Wrongly retrying
+costs seconds and ends where it would have ended. Wrongly giving up costs the
+doorbell for the session, late replies, and up to twenty reads in the fallback.
+Fatal is the expensive guess, so it is the one that must be argued for.
+
+**Why connections die is still unknown**, and the code was discarding the
+evidence. There are two close paths and only one has ever fired: the zero-byte
+read, never the `OP_CLOSE` frame. So connections are **dropped, not closed** --
+no frame, no code, no reason. The close path now logs the code *and* the reason
+text after it, so the next one explains itself.
+
+**The silent-stream detector is deliberately not built yet.** Nobody has
+measured how regular the server's own ping is, because the answer was always
+discarded, and a deadline chosen from a guess is how a detector starts hanging
+up on healthy connections -- causing exactly the missed wake it exists to
+prevent. At one ping a minute a 30-minute wait is ~30 chances to be wrong,
+against a failure seen twice in two days. So the silences are now measured and
+logged; the deadline comes from the data.
+
 ### After a server close the ticket is spent, and the old advice was stale
 
 The doorbell warning came back the day after a closed socket was made

@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import hookutil as H
 import waiter
-from cliqlib import Config, Relay, is_away, new_request_id, notify_only_hint
+from cliqlib import (Config, Relay, is_away, log, new_request_id,
+                     notify_only_hint)
 
 
 def questions_of(payload: dict) -> list[dict]:
@@ -158,8 +159,10 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
                   answers=[{"label": "Answer", "value": "form", "req": rid}]):
         return 0                          # relay down: the terminal has it
 
+    log(f"ask: sent {rid}, waiting")
     reply = H.block_for_reply(cfg, rid, session_id=session_id, kind="ask",
                               cwd=cwd, topic=render(questions)[:160])
+    log(f"ask: {rid} -> {(reply or {}).get('type', 'nothing')}")
     if not reply:
         return 0                          # window lapsed; terminal takes over
 

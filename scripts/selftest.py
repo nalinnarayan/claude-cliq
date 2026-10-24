@@ -1020,6 +1020,16 @@ class Transport(unittest.TestCase):
         waiter.arm(rid, session_id="s", kind="finished", cwd="/tmp",
                    expires_at=time.time() + 60)
 
+    def test_a_quiet_stream_also_mints_a_fresh_ticket(self):
+        # A silent subscription is as spent as a closed one. But NOT every
+        # retryable error renews: a ticket costs a Data Store read, so
+        # retrying stays cheap while re-ticketing is reserved for causes that
+        # genuinely end the session.
+        import collect as _collect
+        src = (Path(__file__).parent / "collect.py").read_text()
+        self.assertIn("went quiet", src, "a quiet stream should renew")
+        self.assertIn("closed the connection", src, "so should a close frame")
+
     def test_a_spent_ticket_is_replaced_after_the_server_closes(self):
         # Reported as "I got this message again": the doorbell warning came
         # back the day after the close was made retryable. It HAD reconnected
@@ -1086,24 +1096,40 @@ class Transport(unittest.TestCase):
             _wake._listen_once = original
         self.assertEqual(tickets, ["k1", "k1"], "same ticket, as measured")
 
-    def test_a_closed_socket_is_retried_rather_than_abandoned(self):
-        # Reported live: "The Cliq doorbell isn't reachable, so I'm falling
-        # back to polling." One closed socket did that. A server-side close is
-        # transient -- Data Streams closes idle connections and rotates hosts,
-        # and EVERY connect in the log already failed once with
-        # SESSION_EXPIRED before succeeding -- so classifying it as fatal
-        # traded the doorbell for polling over an ordinary event.
-        self.assertTrue(
-            wake.WakeError("connection closed by the server",
-                           retryable=True).retryable)
-        # Both close sites must agree; the handshake one loses the same race.
-        src = (Path(__file__).parent / "wake.py").read_text()
+    def test_a_transport_failure_is_retryable_unless_argued_otherwise(self):
+        # The default used to be fatal, and it cost the doorbell three times in
+        # two days: a spent ticket after a close, a polite close frame, and a
+        # subscription that went silent. Each was found only because replies
+        # were late, since the polling fallback hides the loss.
+        #
+        # This is the test that would have caught all three at once.
+        self.assertTrue(wake.WakeError("something nobody has classified").retryable)
+
         for message in ("connection closed by the server",
-                        "server closed during the handshake"):
-            at = src.index(message)
-            window = src[at:at + 200]
-            self.assertIn("retryable=True", window,
-                          f"{message!r} should reconnect, not fall back")
+                        "server closed during the handshake",
+                        "cannot reach host:443 (blocked)",
+                        "timed out waiting for the upgrade response",
+                        "the stream went quiet"):
+            self.assertTrue(wake.WakeError(message).retryable, message)
+
+    def test_the_fatal_cases_are_the_ones_retrying_cannot_help(self):
+        # Credentials, authorisation, and something that is not a WebSocket
+        # peer at all. Asking those again changes nothing.
+        self.assertFalse(
+            wake.WakeError("Data Streams rejected the ticket", retryable=False).retryable)
+        src = (Path(__file__).parent / "wake.py").read_text()
+        for marker in ("_FATAL[mtype], retryable=False",
+                       "WebSocket peer\", retryable=False"):
+            self.assertIn(marker, src, f"{marker} should be explicitly fatal")
+
+    def test_a_polite_close_reconnects_but_a_policy_close_does_not(self):
+        # 1001 "going away" and 1012 "service restart" mean come back; 1008
+        # says we are unwelcome. Before this, EVERY close frame was fatal, so
+        # a courteous server was the one thing that dropped us to polling.
+        src = (Path(__file__).parent / "wake.py").read_text()
+        self.assertIn("retryable=code != 1008", src)
+        self.assertIn('payload[2:].decode', src,
+                      "the close reason text should be read, not discarded")
 
     def test_poll_mode_never_opens_the_stream(self):
         # The whole point of the hatch: a surprise bill or a blocked port must

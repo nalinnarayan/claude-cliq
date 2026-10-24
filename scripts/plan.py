@@ -175,8 +175,10 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
     # The question window, not the 300s permission one: a plan is read and
     # considered. `kind="ask"` also unlocks the routing that lets a one-word
     # reply be an answer rather than a verdict.
+    log(f"plan: sent {rid} ({len(plan)} chars), waiting")
     reply = H.block_for_reply(cfg, rid, session_id=session_id, kind="ask",
                               cwd=cwd, topic=caption_for(plan)[:160])
+    log(f"plan: {rid} -> {(reply or {}).get('type', 'nothing')}")
     if not reply or reply.get("type") == "cancelled":
         return 0                          # lapsed or dismissed; terminal takes over
 

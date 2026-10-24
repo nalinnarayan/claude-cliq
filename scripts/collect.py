@@ -498,7 +498,14 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
         Still nothing for SESSION_EXPIRED, which fires on almost every first
         connect and is fixed by retrying with the ticket already in hand.
         """
-        if "closed by the server" not in str(exc):
+        # Causes that genuinely spend the session. Deliberately NOT every
+        # retryable error: a ticket costs a Data Store read, so retrying is
+        # cheap but re-ticketing is not.
+        reason = str(exc)
+        spent = ("closed by the server" in reason
+                 or "closed the connection" in reason
+                 or "went quiet" in reason)
+        if not spent:
             return None
         log("collect: the session is gone — minting a fresh stream ticket")
         return relay.stream_ticket()

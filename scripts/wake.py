@@ -82,11 +82,23 @@ SERVER_PING_EVERY = 60.0    # {"value":"ping"}
 class WakeError(Exception):
     """Anything that makes the socket unusable.
 
-    `retryable` means reconnecting is likely to work; the caller should not
-    surface it to a human on the first occurrence.
+    RETRYABLE BY DEFAULT, deliberately, and the fatal cases are named at each
+    raise instead.
+
+    It was the other way round, and that default cost the doorbell three times
+    over two days -- a spent ticket after a close, a polite close frame, and a
+    subscription that went silent -- each found only because replies were late,
+    since the polling fallback hides the loss.
+
+    The costs are not symmetric. listen() caps retries at four attempts with
+    backoff, about seven seconds, and then falls back to polling anyway. So
+    wrongly retrying costs seconds and ends where it would have ended; wrongly
+    giving up costs the doorbell for the whole session, late replies, and up to
+    twenty reads in the fallback. Fatal is the expensive guess, so it is the
+    one that has to be argued for.
     """
 
-    def __init__(self, message: str, *, retryable: bool = False):
+    def __init__(self, message: str, *, retryable: bool = True):
         super().__init__(message)
         self.retryable = retryable
 
@@ -102,6 +114,10 @@ class _Conn:
         self.host, self.path, self.port = host, path, port
         try:
             raw = socket.create_connection((host, port), timeout=timeout)
+            # Let the OS probe a peer that vanished without a FIN. Our own
+            # pings are writes, and a write to a half-open socket succeeds, so
+            # nothing at the application layer reveals that case.
+            raw.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             ctx = ssl.create_default_context()
             self.sock = ctx.wrap_socket(raw, server_hostname=host)
         except (OSError, ssl.SSLError) as exc:
@@ -111,8 +127,7 @@ class _Conn:
             # Retryable because a network blip and a blocked port are
             # indistinguishable from one connect attempt; persistent failure
             # exhausts the retries and surfaces as fatal.
-            raise WakeError(f"cannot reach {host}:{port} ({exc})",
-                            retryable=True) from exc
+            raise WakeError(f"cannot reach {host}:{port} ({exc})") from exc
         self._buf = b""
         self._handshake(timeout)
 
@@ -141,8 +156,7 @@ class _Conn:
                 # Retryable for the same reason: the first connect after
                 # minting a ticket routinely loses the race with the server
                 # registering the session, and the next one works.
-                raise WakeError("server closed during the handshake",
-                                retryable=True)
+                raise WakeError("server closed during the handshake")
             head += chunk
         header_blob, _, rest = head.partition(b"\r\n\r\n")
         self._buf = rest                      # frames may already be in here
@@ -160,7 +174,10 @@ class _Conn:
         if got != want:
             # A proxy that answers 101 without understanding WebSocket would
             # otherwise look like a working connection that never delivers.
-            raise WakeError("Sec-WebSocket-Accept did not match; not a real WebSocket peer")
+            # FATAL: whatever answered is not a WebSocket peer, and asking it
+            # again will not change that.
+            raise WakeError("Sec-WebSocket-Accept did not match; not a real "
+                            "WebSocket peer", retryable=False)
 
     # -- raw frames --------------------------------------------------------
 
@@ -175,7 +192,7 @@ class _Conn:
                 # closes idle connections and rotates hosts. Treated as fatal
                 # it dropped the machine to polling over ONE closed socket --
                 # the exact cost the doorbell exists to avoid.
-                raise WakeError("connection closed by the server", retryable=True)
+                raise WakeError("connection closed by the server")
             self._buf += chunk
         out, self._buf = self._buf[:n], self._buf[n:]
         return out
@@ -330,6 +347,15 @@ def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
                  streaming_id: str) -> str | None:
     conn = connect(ticket, streaming_id=streaming_id)
     last_ping = last_server_ping = time.time()
+    # When the server last said ANYTHING -- data, ping, pong. Recorded rather
+    # than acted on: a stream that has gone silent is the failure we are
+    # chasing, but nobody has ever measured how regular the server's own ping
+    # is, because the answer was always discarded. Enforcing a deadline chosen
+    # from a guess is how a detector starts hanging up on healthy connections,
+    # which causes exactly the missed wake it exists to prevent. So: gather
+    # first, and let the observed numbers choose the deadline.
+    last_heard = time.time()
+    longest_silence = 0.0
     try:
         while time.time() < deadline:
             now = time.time()
@@ -347,9 +373,27 @@ def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
             except TimeoutError:
                 continue
 
+            silence = time.time() - last_heard
+            last_heard = time.time()
+            if silence > longest_silence:
+                longest_silence = silence
+            # Only the ones worth looking at: anything past the server's own
+            # ping interval is, by definition, longer than it should be.
+            if silence > SERVER_PING_EVERY:
+                log(f"wake: the server was quiet for {silence:.0f}s "
+                    f"(its ping interval is {SERVER_PING_EVERY:.0f}s)")
+
             if op == OP_CLOSE:
+                # The reason text after the 2-byte code used to be discarded,
+                # which is why no closure has ever explained itself. Only 1008
+                # (policy violation) says we are unwelcome; 1001 "going away"
+                # and 1012 "service restart" mean precisely "come back".
                 code = struct.unpack("!H", payload[:2])[0] if len(payload) >= 2 else 0
-                raise WakeError(f"server closed the connection (code {code})")
+                why = payload[2:].decode("utf-8", "replace").strip()
+                raise WakeError(
+                    f"server closed the connection (code {code}"
+                    + (f": {why}" if why else "") + ")",
+                    retryable=code != 1008)
 
             text = payload.decode("utf-8", "replace").strip()
             if not text:
@@ -365,9 +409,10 @@ def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
 
             mtype = str(events[0].get("mtype", ""))
             if mtype in _FATAL:
-                raise WakeError(_FATAL[mtype])
+                # FATAL: the credential or the account is the problem.
+                raise WakeError(_FATAL[mtype], retryable=False)
             if mtype in _RETRYABLE:
-                raise WakeError(_RETRYABLE[mtype], retryable=True)
+                raise WakeError(_RETRYABLE[mtype])
             if mtype == MT_AUTH_SUCCESS:
                 log("wake: subscribed")
                 continue
@@ -396,4 +441,10 @@ def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
                     return got
         return None
     finally:
+        # The number that will choose the quiet deadline, once there is enough
+        # of it to choose from. Logged per connection rather than per frame so
+        # it is readable without drowning the log.
+        if longest_silence:
+            log(f"wake: longest silence on that connection was "
+                f"{longest_silence:.0f}s")
         conn.close(unsubscribe=True)

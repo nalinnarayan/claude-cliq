@@ -18,7 +18,7 @@ import ask
 import hookutil as H
 import plan
 from cliqlib import (blanket_approval_until, grant_blanket_approval,
-                     is_away, new_request_id, notifies, notify_only_hint)
+                     is_away, log, new_request_id, notifies, notify_only_hint)
 
 PREVIEW_CHARS = 700
 
@@ -79,6 +79,11 @@ def main() -> int:
     # the decision stands and the tool runs having answered nothing. Before
     # ECHOES_INPUT existed the decision was discarded and the dialog appeared,
     # which was wrong but harmless; now it is silent and wrong.
+    # The hooks logged nothing at all, which made "it appeared in both the
+    # terminal and Cliq" impossible to diagnose from this side: there was no
+    # way to tell whether this hook had even run, let alone what it decided.
+    log(f"permission: {tool} away={is_away()} session={session_id[:8]}")
+
     if tool == "AskUserQuestion":
         return ask.handle(cfg, relay, payload)
 
