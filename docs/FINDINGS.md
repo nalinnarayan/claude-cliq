@@ -362,6 +362,19 @@ read, never the `OP_CLOSE` frame. So connections are **dropped, not closed** --
 no frame, no code, no reason. The close path now logs the code *and* the reason
 text after it, so the next one explains itself.
 
+**The bell rung during an outage was the real loss.** Subscribing with
+`streamingId: "0"` means **live events only** -- the code says so at
+`wake.py:288` -- so a wake published while disconnected is never replayed, and
+`listen()` reconnected without re-checking. Recovery restored the doorbell but
+not the ring that was missed, and the reply then waited for the NEXT bell.
+That is precisely why the answer appeared only once a second message was sent:
+the second message rang a bell, and one fetch collected both.
+
+So the decisive fix was not the detector at all. `listen()` now takes an
+`on_reconnect` callback and the leader drains once on the way back up -- one
+read, against a reply arriving minutes late. Detection decides *how fast* we
+recover; this decides *whether* the reply arrives at all.
+
 **The silent-stream detector is deliberately not built yet.** Nobody has
 measured how regular the server's own ping is, because the answer was always
 discarded, and a deadline chosen from a guess is how a detector starts hanging

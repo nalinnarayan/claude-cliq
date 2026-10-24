@@ -517,8 +517,16 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
         # than sitting until the whole window expires.
         until = min(deadline, _hold_until) if _hold_until else deadline
         listening_until[0] = until
+        def on_reconnect():
+            # A bell rung while we were disconnected is gone -- Data Streams
+            # replays nothing at streamingId "0". So check once on the way
+            # back up, or the reply that arrived during the outage waits for
+            # the next bell. One read, against a reply arriving minutes late.
+            log("collect: reconnected — checking for anything rung meanwhile")
+            return _drain(cfg, relay, want)
+
         got = wake.listen(creds, deadline=until, on_wake=on_wake, log=log,
-                          renew=renew)
+                          renew=renew, on_reconnect=on_reconnect)
         if got is not None and got is not _HOLD:
             return got
         if time.time() >= deadline:

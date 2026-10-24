@@ -1020,6 +1020,58 @@ class Transport(unittest.TestCase):
         waiter.arm(rid, session_id="s", kind="finished", cwd="/tmp",
                    expires_at=time.time() + 60)
 
+    def test_a_bell_rung_during_an_outage_is_collected_on_reconnect(self):
+        # The crux of the reported bug. Subscribing at streamingId "0" means
+        # LIVE EVENTS ONLY, so a wake published while we were disconnected is
+        # never replayed. Reconnecting restored the doorbell but not the ring,
+        # and the reply then waited for the NEXT bell -- which is why it only
+        # appeared once a second message was sent.
+        import wake as _wake
+        calls = {"reconnects": 0}
+
+        def on_reconnect():
+            calls["reconnects"] += 1
+            return {"type": "answer", "text": "the reply that was missed"}
+
+        def fake_once(ticket, **kw):
+            raise _wake.WakeError("connection closed by the server")
+
+        original = _wake._listen_once
+        _wake._listen_once = fake_once
+        try:
+            got = _wake.listen({"url": "u", "key": "k", "wss_id": "w"},
+                               deadline=time.time() + 5, on_wake=lambda b: None,
+                               on_reconnect=on_reconnect)
+        finally:
+            _wake._listen_once = original
+
+        self.assertEqual(got, {"type": "answer", "text": "the reply that was missed"},
+                         "the missed reply is returned, not waited for")
+        self.assertEqual(calls["reconnects"], 1,
+                         "checked once on the way back up, not per attempt")
+
+    def test_a_failed_check_on_reconnect_does_not_kill_the_listen(self):
+        # The check is a nicety; losing the socket over it would be worse.
+        import wake as _wake
+        attempts = {"n": 0}
+
+        def fake_once(ticket, **kw):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise _wake.WakeError("connection closed by the server")
+            return "delivered"
+
+        original = _wake._listen_once
+        _wake._listen_once = fake_once
+        try:
+            got = _wake.listen({"url": "u", "key": "k", "wss_id": "w"},
+                               deadline=time.time() + 5, on_wake=lambda b: None,
+                               on_reconnect=lambda: (_ for _ in ()).throw(
+                                   RuntimeError("relay down")))
+        finally:
+            _wake._listen_once = original
+        self.assertEqual(got, "delivered", "it carried on listening")
+
     def test_a_quiet_stream_also_mints_a_fresh_ticket(self):
         # A silent subscription is as spent as a closed one. But NOT every
         # retryable error renews: a ticket costs a Data Store read, so

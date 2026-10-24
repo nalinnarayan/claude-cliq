@@ -300,12 +300,21 @@ def connect(ticket: dict, *, streaming_id: str = "0", timeout: float = 20.0) -> 
 
 
 def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
-           streaming_id: str = "0", renew=None, attempts: int = 4) -> str | None:
+           streaming_id: str = "0", renew=None, on_reconnect=None,
+           attempts: int = 4) -> str | None:
     """Watch for wakes until `deadline`, reconnecting when told to.
 
     Calls `on_wake(payload_dict)` for every data event. If it returns a truthy
     value, that value is returned from here and the socket is closed -- which
     is how a blocked hook stops as soon as its own wake arrives.
+
+    `on_reconnect()` runs after a reconnection and before listening resumes,
+    and whatever it returns truthy is returned from here. It exists because
+    subscribing with streamingId "0" means LIVE EVENTS ONLY: a bell rung while
+    we were disconnected is never replayed, so reconnecting restores the
+    doorbell but not the ring that was missed. Without a check at that moment
+    the reply waits for the NEXT bell -- which is what made an answer look
+    ignored until a second message arrived and rang one.
 
     `renew(exc)` is given the failure and returns a fresh ticket, or None to
     keep the current one. Both cases are real: the transient SESSION_EXPIRED
@@ -328,6 +337,13 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
             log(f"wake: {exc} — reconnecting ({attempt}/{attempts - 1})")
             time.sleep(min(delay, max(0.0, deadline - time.time())))
             delay *= 2
+            if on_reconnect is not None:
+                try:
+                    missed = on_reconnect()
+                    if missed:
+                        return missed
+                except Exception as err:      # a failed check is not fatal
+                    log(f"wake: could not check for missed wakes: {err}")
             if renew:
                 try:
                     # Passed the failure, because only some of them need a new
