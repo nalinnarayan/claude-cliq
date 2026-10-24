@@ -283,6 +283,36 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### After a server close the ticket is spent, and the old advice was stale
+
+The doorbell warning came back the day after a closed socket was made
+retryable, reported as "I got this message again". The retry had happened:
+
+```
+16:45:27  wake: connection closed by the server - reconnecting (2/3)
+16:45:29  stream marked unusable (Data Streams rejected the ticket)
+```
+
+So the reconnect worked and the **credential** was the problem. `listen()`
+retried with the same ticket, and once the server has closed the connection
+that session no longer exists, so the ticket is rejected outright -- straight
+into `_FATAL`, and back to polling.
+
+The comment forbidding renewal said re-minting for a live `connection_name` is
+refused with "Duplicate value for connection_name". That was true when the
+name was derived per device. It stopped being true when tickets began minting
+a **random name each**, and the stale rule then cost the doorbell exactly what
+the rule was written to protect.
+
+`renew` now receives the failure and decides: a fresh ticket after a close,
+and the same ticket for `SESSION_EXPIRED`, which fires on almost every first
+connect and is fixed by retrying with what is already in hand. Minting on that
+one would double the ticket calls for nothing.
+
+Worth noting how it hid: nothing contradicts a comment. The lease behaviour
+was measured once, written down, and then quietly outlived by the code it
+described.
+
 ### Pictures sent together do not arrive together
 
 "I sent those two together" -- and they were, but the relay saw them **23

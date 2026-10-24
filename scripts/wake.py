@@ -290,11 +290,11 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
     value, that value is returned from here and the socket is closed -- which
     is how a blocked hook stops as soon as its own wake arrives.
 
-    `renew()` may return a fresh ticket, but note that re-minting for a
-    connection name whose session is still alive is REFUSED ("Duplicate value
-    for connection_name") -- close() keeps the session on purpose. Retrying
-    with the same ticket is what works for the transient SESSION_EXPIRED, so
-    callers normally pass nothing.
+    `renew(exc)` is given the failure and returns a fresh ticket, or None to
+    keep the current one. Both cases are real: the transient SESSION_EXPIRED
+    on a first connect is fixed by retrying with the SAME ticket, while a
+    server close ends the session and leaves the old ticket to be rejected
+    outright ("Data Streams rejected the ticket").
 
     Returns None on timeout.
     """
@@ -313,7 +313,14 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
             delay *= 2
             if renew:
                 try:
-                    ticket = renew()
+                    # Passed the failure, because only some of them need a new
+                    # ticket: the first connect routinely fails with
+                    # SESSION_EXPIRED and the SAME ticket works next time,
+                    # while a server CLOSE ends the session and makes the old
+                    # ticket worthless. Returning None keeps the current one.
+                    fresh = renew(exc)
+                    if fresh:
+                        ticket = fresh
                 except Exception as err:          # a failed renew is not fatal
                     log(f"wake: could not renew the ticket: {err}")
     return None

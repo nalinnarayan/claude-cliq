@@ -484,11 +484,25 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
             return _HOLD
         return None
 
-    # No ticket renewal on a retry, deliberately. Re-minting for the same
-    # connection_name is refused -- "Duplicate value for connection_name" --
-    # because close() preserves the subscriber session by design, so the name
-    # is still taken. Retrying with the SAME ticket is what actually works,
-    # which is what the transient SESSION_EXPIRED needs anyway.
+    def renew(exc):
+        """A fresh ticket, but only when the old one is genuinely spent.
+
+        The note that used to sit here said never to re-mint, because a
+        connection_name whose session is alive is refused with "Duplicate
+        value for connection_name". That stopped being true when tickets
+        started minting a RANDOM name each -- and keeping the rule cost the
+        doorbell: after a server close the session is gone, the old ticket is
+        rejected ("Data Streams rejected the ticket"), and the machine fell
+        back to polling having retried with a credential that could not work.
+
+        Still nothing for SESSION_EXPIRED, which fires on almost every first
+        connect and is fixed by retrying with the ticket already in hand.
+        """
+        if "closed by the server" not in str(exc):
+            return None
+        log("collect: the session is gone — minting a fresh stream ticket")
+        return relay.stream_ticket()
+
     creds = {"url": ticket["url"], "key": ticket["key"], "wss_id": ticket["wss_id"]}
     while True:
         # Stop early when a reply is being held for the rest of a
@@ -496,7 +510,8 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
         # than sitting until the whole window expires.
         until = min(deadline, _hold_until) if _hold_until else deadline
         listening_until[0] = until
-        got = wake.listen(creds, deadline=until, on_wake=on_wake, log=log)
+        got = wake.listen(creds, deadline=until, on_wake=on_wake, log=log,
+                          renew=renew)
         if got is not None and got is not _HOLD:
             return got
         if time.time() >= deadline:

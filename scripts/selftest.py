@@ -957,6 +957,72 @@ class Transport(unittest.TestCase):
         waiter.arm(rid, session_id="s", kind="finished", cwd="/tmp",
                    expires_at=time.time() + 60)
 
+    def test_a_spent_ticket_is_replaced_after_the_server_closes(self):
+        # Reported as "I got this message again": the doorbell warning came
+        # back the day after the close was made retryable. It HAD reconnected
+        # -- "connection closed by the server - reconnecting (2/3)" -- and
+        # then failed with "Data Streams rejected the ticket", because listen
+        # retried with the same ticket and that session no longer existed.
+        #
+        # The note saying never to re-mint described the old per-device
+        # connection name. Tickets have minted a random name each since the
+        # lease bug, so renewing is safe and necessary.
+        import wake as _wake
+        calls = []
+
+        def renew(exc):
+            calls.append(str(exc))
+            return {"url": "u", "key": "k2", "wss_id": "w2"}
+
+        tickets = []
+
+        def fake_once(ticket, **kw):
+            tickets.append(ticket["key"])
+            if len(tickets) == 1:
+                raise _wake.WakeError("connection closed by the server",
+                                      retryable=True)
+            return "delivered"
+
+        original = _wake._listen_once
+        _wake._listen_once = fake_once
+        try:
+            got = _wake.listen({"url": "u", "key": "k1", "wss_id": "w1"},
+                               deadline=time.time() + 5, on_wake=lambda b: None,
+                               renew=renew)
+        finally:
+            _wake._listen_once = original
+
+        self.assertEqual(got, "delivered")
+        self.assertEqual(tickets, ["k1", "k2"], "the retry used a FRESH ticket")
+        self.assertIn("closed by the server", calls[0], "renew saw the reason")
+
+    def test_the_first_connect_keeps_its_ticket(self):
+        # SESSION_EXPIRED fires on almost every first connect and is fixed by
+        # retrying with the ticket already in hand. Minting a new one each
+        # time would double the ticket calls for nothing.
+        import wake as _wake
+        tickets = []
+
+        def renew(exc):
+            return None if "not ready" in str(exc) else {"url": "u", "key": "new",
+                                                         "wss_id": "w"}
+
+        def fake_once(ticket, **kw):
+            tickets.append(ticket["key"])
+            if len(tickets) == 1:
+                raise _wake.WakeError("session not ready yet", retryable=True)
+            return "delivered"
+
+        original = _wake._listen_once
+        _wake._listen_once = fake_once
+        try:
+            _wake.listen({"url": "u", "key": "k1", "wss_id": "w1"},
+                         deadline=time.time() + 5, on_wake=lambda b: None,
+                         renew=renew)
+        finally:
+            _wake._listen_once = original
+        self.assertEqual(tickets, ["k1", "k1"], "same ticket, as measured")
+
     def test_a_closed_socket_is_retried_rather_than_abandoned(self):
         # Reported live: "The Cliq doorbell isn't reachable, so I'm falling
         # back to polling." One closed socket did that. A server-side close is
