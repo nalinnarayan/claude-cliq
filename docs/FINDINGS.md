@@ -542,6 +542,39 @@ reported, not dropped silently -- the failure this whole change is about.
 A code fence split across a boundary is closed and reopened, or everything
 after the break renders as one code block.
 
+### A held reply can be stranded by the fix that cleaned up its options
+
+Found by checking the spool after the sweep worked, and it had already cost a
+real message: *"When a plan is answered from the terminal, we should not show
+that as a session here in Cliq"* sat unread for fifteen minutes.
+
+The sequence:
+
+```
+14:49:49  asked which of ['dxxch','sfawy'] a plain reply belongs to
+14:49:59  stop: cleared 2 abandoned question waiter(s) from this session
+          -> a tap can no longer land, and nothing else may resolve the reply
+```
+
+`needs_pick` means "this reply is ambiguous and may ONLY be resolved by naming
+a session" -- which is right, and is what stops a stale reply answering a
+question it was never about. But it had no expiry condition. Once the waiters
+it was asked about were gone, no tap could land and no other path was allowed,
+so the reply waited for the staleness prune to discard it.
+
+Worth naming the shape: **the cleanup fix created the loss.** Sweeping
+abandoned waiters was correct, and nothing in the sweep was wrong -- but a
+held reply referred to those waiters, and nothing connected the two.
+
+The flag now records **what it offered** (`asked_about`, `asked_sessions`).
+When none of those are armed any more, the ambiguity is over, and:
+
+- exactly one remaining waiter **from one of those same sessions** gets it --
+  the reply belonged to that session, so this is the unambiguous case;
+- anything else is reported to the sender rather than guessed at, because
+  handing it to a different session is precisely the misdelivery `needs_pick`
+  exists to prevent.
+
 ### One session looked like three, for two reasons at once
 
 Reported with a screenshot of the chooser: *"I'm only working on one session.

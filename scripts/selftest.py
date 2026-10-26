@@ -328,6 +328,52 @@ class Routing(unittest.TestCase):
         got = collect._drain(self.cfg, relay, "aaaaa")
         self.assertNotIn("picked", got["text"], "the bound reply stayed out of it")
 
+    def test_a_held_reply_is_not_stranded_when_its_options_vanish(self):
+        # A real message was lost this way. The chooser held it awaiting a tap,
+        # then the Stop sweep cleared both waiters it had offered -- so no tap
+        # could land, nothing could resolve it, and it sat until the staleness
+        # prune would have discarded it. The fix for one bug opened a
+        # reply-loss path in another.
+        self.arm("aaaaa")
+        self.arm("bbbbb")
+        relay = FakeRelay([[row("1", "which of us is this for")]])
+        collect._drain(self.cfg, relay, "aaaaa")
+        held = spool.items()[0]
+        self.assertTrue(held.get("needs_pick"), "held for a tap")
+        self.assertEqual(sorted(held["asked_about"]), ["aaaaa", "bbbbb"],
+                         "and it remembers WHAT it offered")
+
+        # Both options go away; a new waiter in the same session takes over.
+        waiter.disarm("aaaaa")
+        waiter.disarm("bbbbb")
+        self.arm("ccccc")
+        got = collect._route_spooled(self.cfg, FakeRelay(), "ccccc")
+        self.assertIsNotNone(got, "delivered rather than stranded")
+        self.assertIn("which of us", got["text"])
+        self.assertEqual(spool.items(), [], "and nothing left behind")
+
+    def test_a_held_reply_is_never_given_to_a_different_session(self):
+        # It belonged to one of the sessions it was asked about. Handing it to
+        # another is the misdelivery the flag exists to prevent, so when the
+        # options are gone and the session is not represented, say so instead.
+        waiter.arm("aaaaa", session_id="sess-a", kind="finished", cwd="/tmp",
+                   expires_at=time.time() + 60)
+        waiter.arm("bbbbb", session_id="sess-b", kind="finished", cwd="/tmp",
+                   expires_at=time.time() + 60)
+        relay = FakeRelay([[row("1", "ambiguous")]])
+        collect._drain(self.cfg, relay, "aaaaa")
+
+        waiter.disarm("aaaaa")
+        waiter.disarm("bbbbb")
+        waiter.arm("ccccc", session_id="somebody-else", kind="finished",
+                   cwd="/tmp", expires_at=time.time() + 60)
+        after = FakeRelay()
+        got = collect._route_spooled(self.cfg, after, "ccccc")
+        self.assertIsNone(got, "a stranger's session must not receive it")
+        said = " ".join(m["text"] for m in after.sent)
+        self.assertIn("nowhere left to send it", said, "and the sender is told")
+        self.assertEqual(spool.items(), [], "not left to rot either")
+
     def test_tapping_a_dead_question_points_at_the_live_one(self):
         # Reported from a phone: "Why did I receive this nothing is waiting
         # message?" -- a question had been asked, interrupted at the terminal,
