@@ -177,8 +177,24 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
         return 0                          # window lapsed; terminal takes over
 
     if reply.get("type") == "cancelled":
-        # The form was dismissed. Hand the session back at once rather than
-        # holding it for the rest of the window.
+        # "Leave it" -- the one explicit way to decline from Cliq now that
+        # dismissing a form does nothing.
+        #
+        # DENY, not silence. Emitting nothing means "I decline to decide, let
+        # the terminal ask", which left the question sitting at the terminal
+        # exactly as before. What was wanted is the equivalent of pressing Esc
+        # there: the question goes away because the person refused to answer
+        # it. `deny` is how a hook says that, and `message` is the field
+        # Claude actually reads -- `reason` is dropped silently.
+        #
+        # Deliberately NOT applied to a timeout above: an unanswered window
+        # should still fall through to the terminal, because nobody declined
+        # anything -- they just were not looking.
+        H.emit({"hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "deny",
+                         "message": "The user declined to answer this from "
+                                    "Cliq."}}})
         return 0
 
     picked = reply.get("picked")

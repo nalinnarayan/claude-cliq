@@ -197,8 +197,14 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
                               tool_use_id=payload.get("tool_use_id", ""),
                               cwd=cwd, topic=caption_for(plan)[:160])
     log(f"plan: {rid} -> {(reply or {}).get('type', 'nothing')}")
-    if not reply or reply.get("type") == "cancelled":
-        return 0                          # lapsed or dismissed; terminal takes over
+    if not reply:
+        return 0                          # window lapsed; the terminal has it
+
+    if reply.get("type") == "cancelled":
+        # "Leave it" on a plan means the same as the terminal's third choice:
+        # do not approve, keep planning. A deny carries that, where emitting
+        # nothing would leave the prompt sitting at the terminal.
+        return _emit(payload, "keep", "The user declined to decide from Cliq.")
 
     picked = reply.get("picked") or {}
     chosen = picked.get("0") or picked.get(0) or []

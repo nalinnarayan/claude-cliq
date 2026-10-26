@@ -992,6 +992,46 @@ class PlanMode(unittest.TestCase):
         self.assertLessEqual(len(plan.caption_for("#  " + "x" * 900)), plan.MAX_CAPTION)
 
 
+class LeaveIt(unittest.TestCase):
+    """Declining a question from Cliq.
+
+    Dismissing a form now does nothing, so "Leave it" is the one explicit way
+    to decline -- and it has to actually dismiss the question at the terminal,
+    the way pressing Esc there does. Emitting nothing does NOT do that: it
+    means "I decline to decide", and the prompt stays.
+    """
+
+    def test_the_source_denies_on_cancelled_and_is_silent_on_timeout(self):
+        # The distinction that matters. A timeout must still fall through to
+        # the terminal -- nobody declined anything, they just were not
+        # looking -- while an explicit decline must dismiss the question.
+        src = (Path(__file__).parent / "ask.py").read_text()
+        cancelled = src.index('reply.get("type") == "cancelled"')
+        timeout = src.index("if not reply:")
+        self.assertLess(timeout, cancelled, "the timeout branch comes first")
+        branch = src[cancelled:cancelled + 1600]
+        self.assertIn('"behavior": "deny"', branch, "cancelled emits a deny")
+        self.assertIn("declined to answer", branch,
+                      "and tells Claude why, since `message` is what it reads")
+        self.assertIn("return 0", src[timeout:cancelled],
+                      "a timeout still emits nothing")
+
+    def test_a_plan_left_alone_keeps_planning(self):
+        # The same intent as the terminal's third choice: do not approve.
+        d = plan.decision({"tool_input": {"plan": "p"}}, "keep",
+                          "The user declined to decide from Cliq.")
+        dec = d["hookSpecificOutput"]["decision"]
+        self.assertEqual(dec["behavior"], "deny")
+        self.assertIn("declined", dec["message"])
+        self.assertNotIn("interrupt", dec, "keep planning, do not stop the turn")
+
+    def test_both_messages_offer_the_button(self):
+        for name in ("ask", "plan"):
+            src = (Path(__file__).parent / f"{name}.py").read_text()
+            self.assertIn('"value": "leave"', src, name)
+            self.assertIn('"label": "Leave it"', src, name)
+
+
 class HiddenId(unittest.TestCase):
     """Carrying the request id without showing it."""
 
