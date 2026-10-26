@@ -186,8 +186,11 @@ live function's secret and broke the doorbell with nothing to show for it.
 
 #### Images from Cliq
 
-To forward attachments, create a Stratus bucket named `claude-cliq-files` in
-the console — **Stratus has no CLI and no MCP tool, so this is console-only** —
+To forward attachments, create a Stratus bucket in the console and set
+`STRATUS_BUCKET` to its name. **The name must be globally unique across all of
+Zoho**, not just your account -- it becomes part of a public hostname
+(`<bucket>-development.zohostratus.in`), so expect to prefix it with something
+of your own — **Stratus has no CLI and no MCP tool, so this is console-only** —
 and set `STRATUS_BUCKET` to its name. Check it landed without opening the
 console again:
 

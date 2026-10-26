@@ -283,6 +283,26 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### A Stratus bucket name is globally unique, not per account
+
+Hit while setting up a second environment: *"A bucket with this name already
+exists. Please provide a different name."* -- for a name created under a
+different Catalyst account entirely.
+
+The reason is visible in a pre-signed URL:
+
+```
+https://claude-cliq-files-development.zohostratus.in/_signed/inbound/…
+```
+
+The bucket name is a component of a **public hostname**, so it has to be unique
+across all of Zoho, the way an S3 bucket is. Nothing in the create dialog says
+so until the name is rejected.
+
+So `STRATUS_BUCKET` differs per environment by necessity -- which is no loss:
+distinct buckets make cross-talk between test and production impossible rather
+than merely unlikely.
+
 ### A bot CAN send a file, on a different API version with its own rules
 
 I had concluded it could not: the v3 `/bots/<bot>/messages` call takes JSON,
