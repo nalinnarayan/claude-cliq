@@ -11,7 +11,8 @@ from __future__ import annotations
 import sys
 
 import hookutil as H
-from cliqlib import (block_streak, is_away, new_request_id, notifies,
+import waiter
+from cliqlib import (block_streak, is_away, log, new_request_id, notifies,
                      notify_only_hint)
 
 
@@ -34,6 +35,17 @@ def main() -> int:
         return 0
 
     session_id = payload.get("session_id", "")
+
+    # Reaching here proves no question is pending in this session: a turn
+    # cannot end while one is open. So anything still armed from an
+    # AskUserQuestion or a plan was abandoned -- rejected at the terminal with
+    # a typed reply, which leaves the hook RUNNING, so neither the dead-owner
+    # sweep nor a tool_use_id can clear it. Left alone they sat for their full
+    # window and offered the chooser dead choices: taps that reach a hook whose
+    # tool call was already resolved.
+    stale = waiter.disarm_for_session(session_id)
+    if stale:
+        log(f"stop: cleared {stale} abandoned question waiter(s) from this session")
     cwd = payload.get("cwd", "")
     body = H.summarize(payload.get("last_assistant_message", ""))
     if not body:

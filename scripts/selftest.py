@@ -940,6 +940,75 @@ class PlanMode(unittest.TestCase):
         self.assertLessEqual(len(plan.caption_for("#  " + "x" * 900)), plan.MAX_CAPTION)
 
 
+class AbandonedWaiters(unittest.TestCase):
+    """Clearing question waiters an abandoned hook left armed.
+
+    Reproduced deliberately: rejecting a plan with a TYPED reply leaves the
+    hook running -- pid alive, armed for its full window -- so the dead-owner
+    sweep cannot touch it, and there is no tool_use_id to cancel it with
+    because the PermissionRequest payload carries none. Two rejections put two
+    dead choices in the chooser, each leading to a hook whose tool call had
+    already been resolved.
+
+    The rule that needs no identifier: a turn cannot end while a question is
+    open, so reaching the Stop hook proves none is pending in that session.
+    """
+
+    def setUp(self):
+        clean()
+
+    def arm(self, rid, kind, session_id):
+        waiter.arm(rid, session_id=session_id, kind=kind, cwd="/tmp",
+                   expires_at=time.time() + 600)
+
+    def test_a_finished_turn_clears_its_own_sessions_questions(self):
+        self.arm("aaaaa", "ask", "mine")
+        self.arm("bbbbb", "ask", "mine")
+        self.assertEqual(waiter.disarm_for_session("mine"), 2)
+        self.assertEqual(waiter.active(), [], "both dead choices gone")
+
+    def test_another_sessions_question_is_untouched(self):
+        # Someone else's pending question is live work, not debris.
+        self.arm("aaaaa", "ask", "mine")
+        self.arm("bbbbb", "ask", "theirs")
+        self.assertEqual(waiter.disarm_for_session("mine"), 1)
+        self.assertEqual([w["request_id"] for w in waiter.active()], ["bbbbb"])
+
+    def test_a_permission_is_untouched(self):
+        # A permission is answered by buttons on its own message and may
+        # legitimately be outstanding; sweeping it would silently deny it.
+        self.arm("aaaaa", "permission", "mine")
+        self.arm("bbbbb", "ask", "mine")
+        self.assertEqual(waiter.disarm_for_session("mine"), 1)
+        self.assertEqual([w["request_id"] for w in waiter.active()], ["aaaaa"])
+
+    def test_a_finished_waiter_is_untouched(self):
+        # It is how a reply gets back at all.
+        self.arm("aaaaa", "finished", "mine")
+        self.assertEqual(waiter.disarm_for_session("mine"), 0)
+        self.assertEqual(len(waiter.active()), 1)
+
+    def test_keep_spares_one_request(self):
+        self.arm("aaaaa", "ask", "mine")
+        self.arm("bbbbb", "ask", "mine")
+        self.assertEqual(waiter.disarm_for_session("mine", keep="bbbbb"), 1)
+        self.assertEqual([w["request_id"] for w in waiter.active()], ["bbbbb"])
+
+    def test_no_session_id_sweeps_nothing(self):
+        # A payload without a session must never be read as "sweep everything".
+        self.arm("aaaaa", "ask", "mine")
+        self.assertEqual(waiter.disarm_for_session(""), 0)
+        self.assertEqual(len(waiter.active()), 1)
+
+    def test_a_hook_blocked_on_a_swept_waiter_is_released(self):
+        # Deleting the file must not strand the hook still waiting on it:
+        # wait() reads a missing file as "settled without us" and returns.
+        self.arm("aaaaa", "ask", "mine")
+        waiter.disarm_for_session("mine")
+        self.assertIsNone(waiter.wait("aaaaa", time.time() + 2),
+                          "released promptly, not held to the deadline")
+
+
 class NotifyOnlyHint(unittest.TestCase):
     """Telling someone their reply cannot land, before they type it.
 

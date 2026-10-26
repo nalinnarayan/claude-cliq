@@ -138,6 +138,50 @@ def disarm_for_tool(tool_use_id: str) -> int:
     return n
 
 
+def disarm_for_session(session_id: str, kinds: tuple[str, ...] = ("ask",),
+                       keep: str = "") -> int:
+    """Drop this session's question waiters. A finished turn proves none is pending.
+
+    The cancellation that needs no identifier. A turn cannot end while a
+    question is open, so once the Stop hook runs, every `ask` waiter belonging
+    to that session is stale by definition.
+
+    It is needed because the obvious routes do not cover the real case.
+    `disarm_for_tool` cannot help: the PermissionRequest payload for
+    AskUserQuestion and ExitPlanMode carries no `tool_use_id` at all. Nor can
+    the dead-owner sweep in active(): rejecting a plan with a TYPED reply
+    leaves the hook running -- measured, `pid ALIVE`, armed for its full
+    1800 seconds -- so the process is alive and the waiter looks legitimate.
+    Two such rejections put two dead choices in the chooser, both leading to a
+    hook whose tool call had already been resolved.
+
+    Scoped to one session and to question kinds on purpose: a permission
+    waiting in another session is somebody's live decision, and a `finished`
+    waiter is how a reply gets back at all.
+
+    Deleting the file releases any hook still blocked on it -- wait() reads a
+    missing file as "settled without us" and stops holding the session, which
+    is exactly right here.
+    """
+    if not session_id or not WAITERS_DIR.exists():
+        return 0
+    n = 0
+    for p in WAITERS_DIR.glob("*.json"):
+        try:
+            data = json.loads(p.read_text())
+        except Exception:
+            continue
+        if data.get("session_id") != session_id:
+            continue
+        if data.get("kind") not in kinds:
+            continue
+        if keep and data.get("request_id") == keep:
+            continue
+        p.unlink(missing_ok=True)
+        n += 1
+    return n
+
+
 def resolve(request_id: str, payload: dict) -> bool:
     """Daemon side: hand an answer to a waiting hook."""
     p = _path(request_id)
