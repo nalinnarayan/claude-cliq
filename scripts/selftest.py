@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ["CLAUDE_CLIQ_HOME"] = tempfile.mkdtemp(prefix="cliq-selftest-")
 
 import attach           # noqa: E402
+import hookutil as H    # noqa: E402
 import plan             # noqa: E402
 import collect          # noqa: E402
 import wake             # noqa: E402
@@ -986,6 +987,43 @@ class PlanMode(unittest.TestCase):
         self.assertLessEqual(len(plan.caption_for("#  " + "x" * 900)), plan.MAX_CAPTION)
 
 
+class CliqMarkup(unittest.TestCase):
+    """Text that Cliq would mangle on the way out."""
+
+    def test_two_tildes_no_longer_strike_out_everything_between(self):
+        # Reported with a screenshot: a Bash command containing two
+        # `~/.claude/...` paths arrived with both tildes eaten and the whole
+        # span between them struck through. defuse_cliq_markup existed for
+        # exactly this and carried that explanation, but was only applied in
+        # summarize(), which only on_stop uses -- so permissions, questions
+        # and plans all sent their text raw.
+        cmd = "grep x ~/.claude/cliq/cliq.log; ls ~/.claude/cliq/waiters/"
+        self.assertNotIn("~", H.defuse_cliq_markup(cmd))
+
+    def test_every_outbound_message_is_defused_not_just_the_stop_one(self):
+        # Fixed in send(), the single place everything outbound passes
+        # through, rather than at each call site where the next one added
+        # would forget.
+        class R:
+            def __init__(self): self.sent = []
+            def notify(self, **kw): self.sent.append(kw)
+
+        r = R()
+        H.send(r, kind="permission", text="ls ~/a and ~/b",
+               request_id="aaaaa", hint="mind the ~tildes~")
+        self.assertEqual(len(r.sent), 1)
+        self.assertNotIn("~", r.sent[0]["text"])
+        self.assertNotIn("~", r.sent[0]["hint"], "the hint too")
+
+    def test_defusing_leaves_real_formatting_alone(self):
+        # Our own messages use *bold*, _italic_ and backticks; only tildes are
+        # ever accidental.
+        text = "*bold* _italic_ `code` and a path ~/x"
+        out = H.defuse_cliq_markup(text)
+        for marker in ("*bold*", "_italic_", "`code`"):
+            self.assertIn(marker, out)
+
+
 class AbandonedWaiters(unittest.TestCase):
     """Clearing question waiters an abandoned hook left armed.
 
@@ -1033,6 +1071,19 @@ class AbandonedWaiters(unittest.TestCase):
         self.arm("aaaaa", "finished", "mine")
         self.assertEqual(waiter.disarm_for_session("mine"), 0)
         self.assertEqual(len(waiter.active()), 1)
+
+    def test_a_settled_tool_call_clears_its_permission_waiter(self):
+        # Measured: PermissionRequest carries no tool_use_id for ANY tool --
+        # `tool_use_id=NONE` for Bash, the same for AskUserQuestion -- so
+        # disarm_for_tool has never matched anything and on_settled did
+        # nothing at all. PostToolUse means that call has settled, so a
+        # permission still waiting on it was answered at the terminal.
+        self.arm("aaaaa", "permission", "mine")
+        self.arm("bbbbb", "ask", "mine")
+        self.assertEqual(
+            waiter.disarm_for_session("mine", kinds=("permission",)), 1)
+        self.assertEqual([w["request_id"] for w in waiter.active()], ["bbbbb"],
+                         "the question is untouched; only the permission went")
 
     def test_keep_spares_one_request(self):
         self.arm("aaaaa", "ask", "mine")

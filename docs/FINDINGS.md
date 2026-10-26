@@ -542,6 +542,55 @@ reported, not dropped silently -- the failure this whole change is about.
 A code fence split across a boundary is closed and reopened, or everything
 after the break renders as one code block.
 
+### on_settled has never cancelled anything, for any tool
+
+Tested on request: a permission raised, approved at the terminal, and the
+hook's own log asked to say whether an id was present.
+
+```
+15:03:33  permission: Bash away=True session=142147c0 tool_use_id=NONE
+```
+
+**`PermissionRequest` carries no `tool_use_id` for any tool.** Not Bash, not
+AskUserQuestion. So `disarm_for_tool` has been matching waiters against a
+field no waiter ever had -- `on_settled.py` has been inert since it was
+written, and the comment in `waiter.py` describing it as what stops a
+terminal-answered permission "poisoning later replies" describes something
+that has never once happened.
+
+The consequence was bounded rather than severe: a lingering permission waiter
+cannot hijack a typed reply or appear in the chooser, since both paths exclude
+permissions deliberately. What it could do is make a later tap on a stale Cliq
+permission message hand a decision to a call that already ran -- a tap that
+looks like it did something.
+
+`on_settled` now clears **by session**: a settled tool call proves any
+permission waiting on it in that session was answered elsewhere. The
+tool_use_id branch is kept for the day a payload carries one, but it is not
+what does the work.
+
+Two things worth taking from this. The test was only possible after noticing
+that an **active blanket approval** was short-circuiting every permission to
+an immediate allow -- the hook fired and the log recorded it, but nothing ever
+reached Cliq. And then that **auto mode** was suppressing the prompts
+entirely, which is itself a consequence of approving a plan with "auto mode",
+a thing this bridge now does.
+
+### Two tildes strike out everything between them
+
+Reported with a screenshot: a permission message showing a Bash command
+arrived with both `~` eaten and the span between them struck through. The
+command was ordinary -- `grep ... ~/.claude/cliq/cliq.log; ls
+~/.claude/cliq/waiters/` -- and two home-directory paths is all it takes.
+
+`defuse_cliq_markup` exists for exactly this and carries exactly that
+explanation. It was only ever applied inside `summarize()`, which only
+`on_stop` uses, so permissions, questions and plans all sent their text raw.
+
+Now applied in `hookutil.send()`, the one place every outbound message passes
+through, so the next call site added cannot forget. Only tildes are affected;
+`*bold*`, `_italic_` and backticks are intentional and left alone.
+
 ### A held reply can be stranded by the fix that cleaned up its options
 
 Found by checking the spool after the sweep worked, and it had already cost a

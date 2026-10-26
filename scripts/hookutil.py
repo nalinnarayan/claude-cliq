@@ -116,9 +116,17 @@ def send(relay: Relay, *, kind: str, text: str, request_id: str,
         log(f"{kind} notify shed: this machine has hit its own per-minute pace")
         return False
     try:
-        relay.notify(kind=kind, text=text, request_id=request_id,
+        # Defused HERE, at the one place everything outbound passes through,
+        # rather than at each call site. It was only applied in summarize(),
+        # which only on_stop uses -- so a permission showed its Bash command
+        # raw, and a command containing two `~` (two `~/.claude/...` paths, say)
+        # had everything between them struck through and both tildes eaten.
+        # Reported from Cliq with a screenshot of exactly that.
+        relay.notify(kind=kind, text=defuse_cliq_markup(text),
+                     request_id=request_id,
                      session_id=session_id, cwd=cwd,
-                     expects_reply=expects_reply, hint=hint, answers=answers)
+                     expects_reply=expects_reply,
+                     hint=defuse_cliq_markup(hint), answers=answers)
         return True
     except RelayError as exc:
         log(f"{kind} notify failed: {exc}")
