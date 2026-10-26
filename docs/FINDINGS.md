@@ -283,6 +283,64 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### A queued prompt cannot be seen from outside the process
+
+The ask: when the person comes back to the terminal, stop holding the session
+waiting for Cliq. The best signal would be the one they proposed -- a prompt
+sitting in the terminal's input queue, which is unambiguous evidence they are
+at the keyboard rather than merely at the machine. Three ways to observe it,
+all measured, all negative:
+
+| Signal | Result |
+| --- | --- |
+| `~/.claude/history.jsonl` grows on submit | **no** -- written on DELIVERY |
+| Any other file under `~/.claude` moves while queued | **no** -- nothing |
+| `UserPromptSubmit` fires on submit | **no** -- fires on DELIVERY |
+
+The history file was the most misleading: an entry's `timestamp` is assigned at
+delivery too, so observation time equals the timestamp and it *looks* like a
+submit-time write. A watcher polling twice a second across a three-minute
+blocked window recorded nothing at all, and the entry appeared seven seconds
+*after* the hook released.
+
+`UserPromptSubmit` was the best remaining hope, since it is a hook we register
+ourselves and its payload carries `prompt`, `prompt_id`, `permission_mode`,
+`session_id` and `transcript_path`. It does not fire while a prompt is queued.
+
+So the queue is held purely in memory, and the only signal left is
+`HIDIdleTime` from `ioreg` -- seconds since any keyboard or mouse input, which
+is machine-wide and therefore a proxy for "at the computer" rather than "at
+this terminal".
+
+Also ruled out: the tty's own timestamps. `/dev/ttysNNN` showed atime and mtime
+within a second of *now* while the person had not typed for minutes, because
+Claude Code writes to the terminal constantly while rendering. Those track
+output, not input.
+
+**And typing does NOT release a blocked hook.** That was briefly believed on
+the evidence of a hook dying with no Cliq reply to explain it -- the real cause
+was a Claude Code restart, requested in order to load the probe. A session with
+a blocked Stop hook keeps the typed prompt queued and unprocessed.
+
+### Three wrong conclusions from timestamp ordering, in one afternoon
+
+Worth recording as a method note, because the same reasoning will look sound
+next time. Each of these was stated confidently and corrected by the user
+saying what they had actually done:
+
+1. "You replied in Cliq first, then typed" -- from the Cliq route preceding the
+   history write. They had typed first; the write came later because it happens
+   on delivery.
+2. "`id source: ask` means `message.ack_key` finally answered" -- it was the
+   relay's own `ask-<req>-<ts>` id for a form submission, a different namespace
+   that the tag-extraction conflated.
+3. "Typing released the blocked hook" -- the restart did.
+
+The instrumentation measured the right things each time. What failed was
+inferring *which* human action produced which line, from ordering alone. Where
+the answer matters, the cheap fix is to have the person say what they did, or
+to design the probe so each action leaves a distinguishable mark.
+
 ### Switching Catalyst accounts means swapping a file, not logging in
 
 Two environments in two accounts, and the CLI holds exactly one session. Three
