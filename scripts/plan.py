@@ -27,10 +27,15 @@ from cliqlib import (Config, Relay, is_away, log, new_request_id,
 # What the terminal offers, in the same order, rendered in the grammar
 # ask.render() produces so the existing form machinery parses it unchanged.
 # No new Deluge function, no new relay route for the form.
+# Only the two that approve. "Keep planning" is NOT listed, deliberately:
+# buildForm appends its own "Something else — type it below" option with a box
+# attached, and that box IS the keep-planning path, exactly as the terminal's
+# third choice is the one you type into. Listing both gave four options where
+# Claude offers three, and made the typed one look like an afterthought
+# rather than the way to send feedback.
 CHOICES = [
     ("auto", "Start work, auto-accept edits"),
     ("review", "Start work, I'll review each edit"),
-    ("keep", "Keep planning"),
 ]
 
 # The permission mode each approval switches the session to, mirroring what
@@ -73,7 +78,10 @@ def render_choices() -> str:
     option. The form adds its own "Something else" box, which is what carries
     the feedback for "keep planning".
     """
-    lines = ["*What should I do with this plan?*"]
+    # The question says what typing does, since the appended option is
+    # generically worded and shared with AskUserQuestion. Over 50 characters,
+    # so splitLabel puts the tail in the hint beside it.
+    lines = ["*What should I do with this plan? Type below to keep planning.*"]
     for i, (_, label) in enumerate(CHOICES, start=1):
         lines.append(f"{i}. {label}")
     return "\n".join(lines)
@@ -200,8 +208,11 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
             feedback = value
 
     if index is None:
-        # Typed something without picking: treat it as "keep planning, and
-        # here is why" rather than guessing at approval.
+        # Typed rather than picked, which is the keep-planning path: the text
+        # becomes the feedback Claude plans against. This is now the ONLY way
+        # to keep planning, which is why "Keep planning" is not a listed
+        # choice -- picking the typed option without typing is refused by the
+        # form itself (missingOther), so feedback cannot be empty here.
         return _emit(payload, "keep", feedback)
     return _emit(payload, CHOICES[index][0], feedback)
 

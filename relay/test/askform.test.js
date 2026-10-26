@@ -6,6 +6,7 @@ const path = require('path');
 const {
   parseQuestions, buildForm, readSubmission, missingOther,
   isMulti, splitLabel, RADIO_MAX, MAX_FIELD_LABEL, MAX_OPTION_LABEL, MAX_INPUTS,
+  MAX_TYPED,
 } = require('../functions/relay/askform.js');
 
 const SCRIPTS = path.join(__dirname, '..', '..', 'scripts');
@@ -57,16 +58,20 @@ print(plan.render_choices(), end="")
   const parsed = parseQuestions(rendered);
   assert.strictEqual(parsed.length, 1, 'one question');
   assert.match(parsed[0].question, /plan/i);
-  assert.strictEqual(parsed[0].options.length, 3, 'the three terminal choices');
+  // TWO listed choices, not three. The terminal's third option is the one you
+  // type into, and buildForm appends exactly that — so listing "Keep
+  // planning" as well gave four options where Claude offers three.
+  assert.strictEqual(parsed[0].options.length, 2, 'only the two that approve');
   assert.ok(!isMulti(parsed[0].question), 'picking two of them is meaningless');
 
-  // And the form built from it is answerable: three options plus Other fits
-  // inside the radio ceiling of five.
   const form = buildForm('abcde', parsed, { submitFn: 'claudeCliqAskSubmit' });
   assert.strictEqual(form.inputs[0].type, 'radio');
-  assert.strictEqual(form.inputs[0].options.length, 4, 'three plus Other');
-  assert.deepStrictEqual(form.inputs[0].options.slice(0, 3).map((o) => o.value),
-                         ['0', '1', '2'], 'carried by index, as plan.py reads them');
+  assert.strictEqual(form.inputs[0].options.length, 3,
+                     'two plus the typed one — the same three the terminal offers');
+  assert.deepStrictEqual(form.inputs[0].options.map((o) => o.value),
+                         ['0', '1', 'other'], 'carried by index, as plan.py reads them');
+  // And the box that option points at has to hold real feedback.
+  assert.strictEqual(form.inputs[1].type, 'textarea');
 });
 
 test('option descriptions are dropped, not mistaken for options', () => {
@@ -201,6 +206,21 @@ test('truncation never reaches Claude, only the screen', () => {
   assert.deepStrictEqual(form.inputs[0].options.slice(0, 2),
     [{ label: 'Image forwarding', value: '0' },
      { label: 'Inbound idempotency', value: '1' }]);
+});
+
+test('the typed answer gets a textarea, because text caps at 100', () => {
+  // Reported: "that field has a 100-char limit which is very restrictive."
+  // It is not a Cliq-wide limit -- a single-line `text` field cannot exceed
+  // 100 characters at all. A textarea takes up to 5000, defaulting to 1000.
+  const form = buildForm('abcde', [{ question: 'Q', options: ['A', 'B'] }]);
+  const box = form.inputs[1];
+  assert.strictEqual(box.type, 'textarea');
+  assert.strictEqual(box.max_length, MAX_TYPED);
+  assert.ok(MAX_TYPED > 100, 'the whole point');
+  assert.ok(MAX_TYPED <= 5000, 'documented ceiling');
+  // A textarea's `mandatory` defaults to TRUE, so omitting this would demand
+  // something typed on every form that has one.
+  assert.strictEqual(box.mandatory, false);
 });
 
 test('every field respects the measured caps', () => {

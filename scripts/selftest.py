@@ -839,6 +839,24 @@ class PlanMode(unittest.TestCase):
         numbered = [l for l in text.splitlines() if l[:2] in ("1.", "2.", "3.")]
         self.assertEqual(len(numbered), len(plan.CHOICES))
 
+    def test_keep_planning_is_the_typed_option_not_a_listed_one(self):
+        # The terminal offers three choices and the third is the one you type
+        # into. Listing "Keep planning" as well made four, and made the typed
+        # option look like an afterthought rather than the way to send
+        # feedback. buildForm appends the typed option itself.
+        self.assertEqual([c[0] for c in plan.CHOICES], ["auto", "review"])
+        self.assertNotIn("keep", [c[0] for c in plan.CHOICES])
+        # The question has to say what typing does, since the appended option
+        # is generically worded and shared with AskUserQuestion.
+        self.assertIn("keep planning", plan.render_choices().lower())
+
+    def test_typing_without_picking_keeps_planning(self):
+        # Now the ONLY route to keep planning, so it must map cleanly.
+        d = plan.decision({"tool_input": {"plan": "p"}}, "keep",
+                          "use a queue instead")["hookSpecificOutput"]["decision"]
+        self.assertEqual(d["behavior"], "deny")
+        self.assertEqual(d["message"], "use a queue instead")
+
     def test_approving_sets_the_mode_the_option_describes(self):
         payload = {"tool_input": {"plan": "# P"}}
         auto = plan.decision(payload, "auto", "")["hookSpecificOutput"]["decision"]

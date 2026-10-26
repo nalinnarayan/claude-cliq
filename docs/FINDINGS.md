@@ -542,6 +542,44 @@ reported, not dropped silently -- the failure this whole change is about.
 A code fence split across a boundary is closed and reopened, or everything
 after the break renders as one code block.
 
+### 100 characters was the field we chose, not a Cliq limit
+
+Reported: "that field has a 100-char limit which is very restrictive." It is
+not a limit on typing in Cliq -- it is the ceiling of the **single-line**
+field we happened to use. Documented, once the right page is read:
+
+| type | `max_length` | default | `mandatory` default |
+| --- | --- | --- | --- |
+| `text` | **capped at 100** | not stated | true |
+| `textarea` | up to **5000** | 1000 | **true** |
+
+So the free-text box is now a `textarea` with `max_length: 5000` -- fifty
+times what it held. The `mandatory` default is the trap: it is **true** for a
+textarea, so leaving it out would demand something typed on every form that
+has one, including every AskUserQuestion.
+
+Worth noting the shape of the mistake. Nothing was measured wrongly here and
+nothing was undocumented; the wrong field type was picked at the start and its
+limit was then treated as the platform's. The cap had been sitting in
+`askform.js` as an unremarked `type: 'text'` since the form was first built.
+
+### The plan form offered four choices where the terminal offers three
+
+`plan.py` listed "Keep planning" as a third choice, and `buildForm` then
+appended its own "Something else -- type it below" with a box attached. Four
+options, and the typed one looked like an afterthought.
+
+But the terminal's third choice *is* the one you type into: "No, keep
+planning... tell Claude what to change." So the appended option was always the
+keep-planning path, and listing it separately duplicated it.
+
+`CHOICES` now holds only the two that approve. Typing is the sole route to
+keep planning, which the form enforces for free: picking the typed option
+without typing is refused by `missingOther`, so the feedback reaching Claude
+can never be empty. The question text carries "Type below to keep planning",
+since the appended option is generically worded and shared with
+AskUserQuestion.
+
 ### A form field label is 50 characters, and there is nowhere else to put text
 
 Reported from a phone -- "Why are the questions truncated here in the form?" --

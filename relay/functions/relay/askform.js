@@ -19,6 +19,11 @@
  *   option label  <= 100      option value <= 50
  *   field label   <= 50       hint         <= 100
  *   form name     <= 50       inputs       <= 25
+ *
+ * And the free-text field, which is documented rather than measured:
+ *   type "text"      max_length capped at 100 -- the whole field, not a default
+ *   type "textarea"  max_length up to 5000, defaulting to 1000
+ *   textarea `mandatory` defaults to TRUE, so it must be set false explicitly
  */
 
 // A question line is bold and alone; an option line is "<n>. <label>"; a
@@ -33,6 +38,9 @@ const MAX_FIELD_LABEL = 50;
 const MAX_HINT = 100;
 const MAX_INPUTS = 25;
 const RADIO_MAX = 5;
+// What someone may type instead of picking. A `text` field cannot exceed 100
+// characters at all; a `textarea` takes up to 5000.
+const MAX_TYPED = 5000;
 
 const OTHER_LABEL = 'Something else — type it below';
 
@@ -141,13 +149,21 @@ function buildForm(requestId, questions, { submitFn = 'claudeCliqAskSubmit' } = 
       options,
       ...(multi ? { max_selections: options.length } : {}),
     });
+    // `textarea`, not `text`. A single-line `text` field caps max_length at
+    // 100 characters -- documented, and the reason a typed answer felt so
+    // cramped. A textarea allows up to 5000 and defaults to 1000.
+    //
+    // `mandatory: false` is NOT optional here: a textarea's mandatory
+    // defaults to TRUE, so leaving it out would demand an answer in the box
+    // on every form.
     inputs.push({
-      type: 'text',
+      type: 'textarea',
       name: `q${i}_other`,
       label: 'Something else',
       hint: 'Only if you picked the last option',
       placeholder: 'your own answer',
       mandatory: false,
+      max_length: MAX_TYPED,
     });
   });
 
@@ -247,5 +263,5 @@ function missingOther(values) {
 module.exports = {
   parseQuestions, buildForm, readSubmission, missingOther, valuesOf, splitLabel,
   isMulti, stripMulti, OTHER_LABEL,
-  MAX_OPTION_LABEL, MAX_FIELD_LABEL, MAX_HINT, MAX_INPUTS, RADIO_MAX,
+  MAX_OPTION_LABEL, MAX_FIELD_LABEL, MAX_HINT, MAX_INPUTS, RADIO_MAX, MAX_TYPED,
 };
