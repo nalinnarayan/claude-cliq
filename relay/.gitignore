@@ -10,3 +10,6 @@ iac/dist/
 !.env.deploy.example
 # Project bindings name an account and org, and switch per environment.
 .catalystrc*
+# A CLI token is a login. Per environment, because each account has
+# its own and the CLI holds only one session at a time.
+.catalyst-token*

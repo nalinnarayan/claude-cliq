@@ -23,7 +23,19 @@ cd "$(dirname "$0")"
 
 CONFIG=functions/relay/catalyst-config.json
 SUFFIX="${1:-}"
-ENVFILE=".env.deploy${SUFFIX:+.$SUFFIX}"
+if [ -z "$SUFFIX" ]; then
+  # No default, deliberately. There used to be one -- the unsuffixed
+  # .env.deploy was whichever environment happened to be current -- and that
+  # ambiguity is how a stale .env.deploy.test was deployed over production,
+  # same project, older secrets, with nothing to say why the doorbell stopped.
+  # Naming the environment costs one word and removes the whole class.
+  echo "usage: ./deploy.sh <env>    e.g. prod | test" >&2
+  echo "environments available here:" >&2
+  ls -1 .env.deploy.* 2>/dev/null | sed 's/^\.env\.deploy\./  /' \
+    | grep -v '^  example$' >&2
+  exit 1
+fi
+ENVFILE=".env.deploy.$SUFFIX"
 
 [ -f "$ENVFILE" ] || { echo "missing $ENVFILE (see .env.deploy.example)"; exit 1; }
 
@@ -79,4 +91,16 @@ json.dump(cfg, open(cfg_path, "w"), indent=2)
 print(f"injected {len(env)} env vars: {', '.join(sorted(env))}")
 PY
 
-catalyst deploy --only functions
+# A token, when one is saved for this environment, so deploying does not
+# depend on which account the CLI happens to be logged into. The CLI holds one
+# session at a time and the two environments live in different accounts, so
+# without this every switch is a browser login -- and a deploy aimed at the
+# wrong account is the expensive mistake here.
+TOKEN_FILE=".catalyst-token${SUFFIX:+.$SUFFIX}"
+if [ -f "$TOKEN_FILE" ]; then
+  echo "auth     : token from $TOKEN_FILE"
+  catalyst deploy --only functions --token "$(cat "$TOKEN_FILE")"
+else
+  echo "auth     : the CLI's current login ($(catalyst whoami 2>/dev/null | tail -1 | sed 's/.*: //'))"
+  catalyst deploy --only functions
+fi

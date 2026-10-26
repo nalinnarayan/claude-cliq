@@ -229,7 +229,7 @@ cp .env.deploy.example .env.deploy              # fill in, then:
 
 `.catalystrc` is deliberately untracked — it pins one project and org, so
 everyone generates their own with `project:use`. `deploy.sh` merges
-`.env.deploy` into the function config just before deploying and strips it
+`.env.deploy.<env>` into the function config just before deploying and strips it
 straight after, so secrets never reach a tracked file.
 
 Set function memory to **128 MB** (the default of 256 doubles the bill for
@@ -306,8 +306,13 @@ Deploying:
 
 ```sh
 catalyst project:use 68018000000067002 --org <org-id-test>
-bash relay/deploy.sh                 # .env.deploy        -> live
-bash relay/deploy.sh test            # .env.deploy.test   -> spare
+bash relay/deploy.sh prod            # .env.deploy.prod   -> production
+bash relay/deploy.sh test            # .env.deploy.test   -> test account
+
+# There is no default environment: naming it is required, because the two
+# live in different Catalyst accounts and a deploy aimed at the wrong one
+# replaces its whole env. A saved .catalyst-token.<env> is used when present,
+# so deploying does not depend on which account the CLI is logged into.
 ```
 
 Which project a deploy lands in comes from `catalyst project:use`, **not** from

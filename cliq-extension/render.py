@@ -15,7 +15,7 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-ENVFILE = HERE.parent / "relay" / ".env.deploy"   # overridden by --env
+ENVFILE = None            # set from --env; there is deliberately no default
 RCFILE = HERE.parent / "relay" / ".catalystrc"
 OUT = HERE / "generated"
 
@@ -49,23 +49,26 @@ def main() -> int:
     ap.add_argument("--repo", default="<your-marketplace-repo>",
                     help="what teammates pass to `claude plugin marketplace add`")
     ap.add_argument("--relay", default=None, help="override the relay base URL")
-    ap.add_argument("--env", default=None,
-                    help="environment suffix, e.g. `test` for .env.deploy.test")
+    ap.add_argument("--env", required=True,
+                    help="which environment: prod | test "
+                         "(reads relay/.env.deploy.<env>)")
     args = ap.parse_args()
 
-    if args.env:
-        # Rebound before anything reads it: relay_base() also pulls RELAY_TLD
-        # out of the same file, so both must come from the same environment.
-        global ENVFILE
-        ENVFILE = HERE.parent / "relay" / f".env.deploy.{args.env}"
-        if not ENVFILE.exists():
-            print(f"no such env file: {ENVFILE}", file=sys.stderr)
-            return 1
+    # Bound before anything reads it: relay_base() also pulls RELAY_TLD out of
+    # the same file, so both must come from the same environment. Required
+    # rather than defaulted, because rendering with the wrong one bakes
+    # another account's relay URL and secret into a bot's handlers -- the bot
+    # would then talk to the wrong environment and look merely broken.
+    global ENVFILE
+    ENVFILE = HERE.parent / "relay" / f".env.deploy.{args.env}"
+    if not ENVFILE.exists():
+        print(f"no such env file: {ENVFILE}", file=sys.stderr)
+        return 1
 
     env = read_env()
     secret = env.get("RELAY_INBOUND_SECRET", "")
     if not secret:
-        print("RELAY_INBOUND_SECRET is empty in relay/.env.deploy", file=sys.stderr)
+        print(f"RELAY_INBOUND_SECRET is empty in {ENVFILE}", file=sys.stderr)
         return 1
     base = args.relay or relay_base()
 
