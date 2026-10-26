@@ -539,8 +539,17 @@ def _drain(cfg: Config, relay: Relay, want: str) -> dict | None:
         # because a message arrived, was routed and was dropped before anyone
         # could see which source had answered, which is the whole question a
         # probe like this exists to settle.
-        tags = ",".join(sorted({str(r.get("id") or "?").split("-")[0]
-                                for r in rows}))
+        # The handler tags the ids IT makes (mdtime-, ack-, …), but the relay
+        # mints its own for things the handler never saw: `ask-<req>-<ts>` for
+        # a form submission and `tap-<req>-<ts>` for a button. Those are not
+        # sources in the handler's chain, and reading them as such reported
+        # "id source: ask" for a form -- which looked exactly like
+        # message.ack_key having finally answered. Named for what they are.
+        _RELAY_MINTED = {"ask": "relay/form", "tap": "relay/button"}
+        tags = ",".join(sorted({
+            _RELAY_MINTED.get(str(r.get("id") or "?").split("-")[0],
+                              str(r.get("id") or "?").split("-")[0])
+            for r in rows}))
         # Whether each row arrived BOUND to a request -- the only way to tell
         # a swipe-reply that resolved its id from one that merely landed on
         # the single armed waiter. Both reach the same place when one session
