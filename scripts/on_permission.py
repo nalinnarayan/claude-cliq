@@ -82,7 +82,12 @@ def main() -> int:
     # The hooks logged nothing at all, which made "it appeared in both the
     # terminal and Cliq" impossible to diagnose from this side: there was no
     # way to tell whether this hook had even run, let alone what it decided.
-    log(f"permission: {tool} away={is_away()} session={session_id[:8]}")
+    # tool_use_id is recorded because on_settled's whole cancellation path
+    # depends on it, and AskUserQuestion was found to carry none -- so whether
+    # an ordinary permission carries one decides whether that path does
+    # anything at all, or whether the 300s window is the only cleanup.
+    log(f"permission: {tool} away={is_away()} session={session_id[:8]} "
+        f"tool_use_id={'yes' if payload.get('tool_use_id') else 'NONE'}")
 
     if tool == "AskUserQuestion":
         return ask.handle(cfg, relay, payload)
