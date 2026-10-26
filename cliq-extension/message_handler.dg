@@ -76,6 +76,37 @@ try
 		mid = md.get("time");
 		tag = "time";
 	}
+	// Candidates the first probe never tried. The documented message object
+	// (cliq-objects/message-object.html) lists BOTH `id` and `ack_key`, and
+	// nests the body under `content` -- so if a handler is handed anything of
+	// that shape, an id may be sitting one level down. Worth knowing even
+	// though no post-message endpoint accepts a reply target: a real id is a
+	// better idempotency key than a timestamp.
+	//
+	// These must come BEFORE the mdtime fallback. Put after it they would
+	// never run at all, because mdtime always succeeds -- the first attempt
+	// at this probe made exactly that mistake and would have reported
+	// nothing. Ordering them first costs nothing: the tag says which answered,
+	// and mdtime still catches everything below.
+	if(mid == null)
+	{
+		mid = md.get("ack_key");
+		tag = "ack";
+	}
+	if(mid == null)
+	{
+		cont = md.get("content");
+		if(cont != null)
+		{
+			mid = cont.get("id");
+			tag = "contentid";
+		}
+	}
+	if(mid == null)
+	{
+		mid = message_details.get("ack_key");
+		tag = "mdack";
+	}
 	if(mid == null)
 	{
 		mid = message_details.get("time");
