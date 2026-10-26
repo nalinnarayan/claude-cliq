@@ -17,7 +17,13 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 ENVFILE = None            # set from --env; there is deliberately no default
 RCFILE = HERE.parent / "relay" / ".catalystrc"
-OUT = HERE / "generated"
+OUT = None                # HERE/"generated"/<env>; set from --env
+
+# Per environment, because two of the five files have the SAME name in both
+# (message_handler, welcome_handler) -- so a single directory means the last
+# render silently overwrites the other environment's, and the directory ends
+# up holding two environments' secrets with nothing to say which is which.
+# Pasting the wrong one points a bot at the wrong account.
 
 
 def read_env() -> dict:
@@ -59,8 +65,9 @@ def main() -> int:
     # rather than defaulted, because rendering with the wrong one bakes
     # another account's relay URL and secret into a bot's handlers -- the bot
     # would then talk to the wrong environment and look merely broken.
-    global ENVFILE
+    global ENVFILE, OUT
     ENVFILE = HERE.parent / "relay" / f".env.deploy.{args.env}"
+    OUT = HERE / "generated" / args.env
     if not ENVFILE.exists():
         print(f"no such env file: {ENVFILE}", file=sys.stderr)
         return 1
@@ -72,7 +79,7 @@ def main() -> int:
         return 1
     base = args.relay or relay_base()
 
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)   # generated/ itself may not exist
     (OUT / ".gitignore").write_text("*\n")
 
     fn_name = env.get("CLIQ_FUNCTION_NAME", "claudeCliqAction")
