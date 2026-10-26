@@ -247,6 +247,44 @@ test('the id is found however the hint decorated it', async () => {
   }
 });
 
+test('a hidden id binds a swipe-reply with nothing shown to the reader', async () => {
+  // The id used to be printed as "(id abcde)". It is now carried as
+  // zero-width characters: present in the text that replied_message hands
+  // back, absent from the screen. The visible form is still read, because
+  // messages already in the chat carry it.
+  const { execFileSync } = require('child_process');
+  const path = require('path');
+  const carrier = execFileSync('python3', ['-c', `
+import sys
+sys.path.insert(0, ${JSON.stringify(path.join(__dirname, '..', '..', 'scripts'))})
+import hidden
+print(hidden.encode("abcde"), end="")
+`], { encoding: 'utf8' });
+
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  const sec = { 'x-relay-secret': 'topsecret' };
+  await h.relay.inbound({ headers: sec, body: {
+    cliq_user: 'u1', text: 'go on', message_id: 'hidden-1',
+    replied_text: `reply to keep it going${carrier}` } });
+
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages[0].request_id, 'abcde',
+                     'bound with no id visible in the message');
+});
+
+test('a mangled carrier leaves the reply unbound rather than misbound', async () => {
+  // If Cliq ever rewrites these characters, the reply must fall back to the
+  // chooser -- never to a plausible-looking id that answers the wrong thing.
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  await h.relay.inbound({ headers: { 'x-relay-secret': 'topsecret' }, body: {
+    cliq_user: 'u1', text: 'go on', message_id: 'hidden-2',
+    replied_text: `reply to keep it going\u2060\u200b\u200b\u2060` } });
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages[0].request_id, '', 'unbound, not guessed');
+});
+
 test('peek shows what is queued without consuming it', async () => {
   const h = harness();
   const tok = await pairUser(h, 'u1', 'alice@z.com');

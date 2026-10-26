@@ -13,6 +13,7 @@
 const crypto = require('crypto');
 const { splitTables, splitForCliq, MAX_PART } = require('./format');
 const askform = require('./askform');
+const hidden = require('./hidden');
 const upload = require('./upload');
 const { URL_TTL_SECONDS } = require('./stratus');
 
@@ -414,13 +415,18 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       // its own; keying on the Cliq message id makes this idempotent.
       const id = String(body.message_id || crypto.randomUUID());
       const replied = String(body.replied_text || '');
-      const m = REPLIED_ID.exec(replied);
+      // The hidden carrier first, then the printed "(id xxxxx)" form. The
+      // visible one is still read because messages already in the chat carry
+      // it, and a swipe-reply to one of those must keep working.
+      const hiddenId = hidden.decode(replied);
+      const m = hiddenId ? null : REPLIED_ID.exec(replied);
+      const repliedId = hiddenId || (m ? m[1].toLowerCase() : '');
       await store.putPending({
         id,
         cliq_user: cliqUser,
         // Bound when the user replied TO a specific message; empty when they
         // just typed into the chat.
-        request_id: m ? m[1].toLowerCase() : '',
+        request_id: repliedId,
         text: text.slice(0, MAX_TEXT),
         ts: now(),
         expires: now() + PENDING_TTL_MS,

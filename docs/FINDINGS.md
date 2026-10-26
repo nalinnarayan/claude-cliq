@@ -576,6 +576,45 @@ reached Cliq. And then that **auto mode** was suppressing the prompts
 entirely, which is itself a consequence of approving a plan with "auto mode",
 a thing this bridge now does.
 
+### The request id can travel invisibly
+
+Asked after the threaded-reply question: *"the message text carries the id we
+give it. Can we make it so that it is not visible on the message but still
+works the way we want it to?"*
+
+Yes, and the reason the id was printed at all is worth restating, because it
+rules out the tidier options. A swipe-reply hands the handler
+`replied_message`, carrying both the answered message's own Cliq id and its
+full text -- but **v3 never reports the id of a message we sent**
+(`sync_message` is rejected), and the relay stores nothing by design. So the
+id cannot be looked up; it has to be recoverable from the text.
+
+What makes hiding it possible is the property the visible form already relied
+on: `replied_message.text` hands back **the raw source, decoration included**.
+So anything in the text survives, printable or not.
+
+Five letters, five bits each, twenty-five bits between two markers:
+
+```
+U+2060 WORD JOINER            start and end marker
+U+200B ZERO WIDTH SPACE       0
+U+200C ZERO WIDTH NON-JOINER  1
+```
+
+27 characters, none of which render. `scripts/hidden.py` writes it,
+`relay/functions/relay/hidden.js` reads it, and a round-trip test runs the real
+Python encoder against the real JS decoder because the halves are in different
+languages and nothing else holds them together.
+
+Two deliberate properties:
+
+- **A mangled carrier decodes to nothing**, never to a plausible id. Too few
+  bits, too many, a stray printable character or a value above 25 all return
+  empty, so a rewritten carrier costs the binding and falls back to the
+  chooser -- it can never bind a reply to the wrong request.
+- **The printed form is still read**, because messages already in the chat
+  carry it and a swipe-reply to one of those has to keep working.
+
 ### A bot cannot reply TO a message, so the message must carry its context
 
 Asked for: have the "not delivered" notice reply to the original message

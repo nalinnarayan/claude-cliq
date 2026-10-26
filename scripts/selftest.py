@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 os.environ["CLAUDE_CLIQ_HOME"] = tempfile.mkdtemp(prefix="cliq-selftest-")
 
 import attach           # noqa: E402
+import hidden           # noqa: E402
 import hookutil as H    # noqa: E402
 import plan             # noqa: E402
 import collect          # noqa: E402
@@ -989,6 +990,41 @@ class PlanMode(unittest.TestCase):
         self.assertEqual(plan.caption_for("# Sending a plan\n\nbody"), "Sending a plan")
         self.assertEqual(plan.caption_for("\n\n   \n"), "A plan to look over.")
         self.assertLessEqual(len(plan.caption_for("#  " + "x" * 900)), plan.MAX_CAPTION)
+
+
+class HiddenId(unittest.TestCase):
+    """Carrying the request id without showing it."""
+
+    def test_it_round_trips_and_shows_nothing(self):
+        for rid in ("atyxx", "aaaaa", "zzzzz", "abcde"):
+            carrier = hidden.encode(rid)
+            self.assertEqual(hidden.decode("some text" + carrier), rid)
+            self.assertEqual(hidden.strip(carrier), "",
+                             "not one printable character")
+
+    def test_an_unencodable_id_costs_the_binding_not_the_message(self):
+        # encode() returns empty rather than raising: a message going out is
+        # worth more than its swipe-reply.
+        for bad in ("TOOLONG", "", "ab1de", "ab de", None):
+            self.assertEqual(hidden.encode(bad or ""), "", repr(bad))
+        # Case is normalised rather than refused, matching how the relay
+        # lowercases the visible form it still falls back to.
+        self.assertEqual(hidden.decode(hidden.encode("ABCDE")), "abcde")
+
+    def test_a_mangled_carrier_decodes_to_nothing(self):
+        # If Cliq ever rewrites these characters the reply must fall back to
+        # the chooser, never to a plausible id that binds the wrong request.
+        good = hidden.encode("atyxx")
+        self.assertEqual(hidden.decode(good[:10]), "")
+        self.assertEqual(hidden.decode(hidden.MARK + hidden.ZERO * 24 + hidden.MARK), "")
+        self.assertEqual(hidden.decode(hidden.MARK + hidden.ONE * 25 + hidden.MARK), "",
+                         "out of the letter range")
+        self.assertEqual(hidden.decode("no markers at all"), "")
+
+    def test_the_stop_hint_no_longer_prints_an_id(self):
+        src = (Path(__file__).parent / "on_stop.py").read_text()
+        self.assertNotIn('(id `{rid}`)', src, "the printed form is gone")
+        self.assertIn("hidden.encode(rid)", src, "and carried instead")
 
 
 class StaleNotice(unittest.TestCase):

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 
+import hidden
 import hookutil as H
 import waiter
 from cliqlib import (block_streak, is_away, log, new_request_id, notifies,
@@ -75,7 +76,12 @@ def main() -> int:
     text = f"{lead} — {ctx}\n\n{body}" if ctx else f"{lead}\n\n{body}"
 
     if armed:
-        hint = f"reply to keep it going (id `{rid}`)"
+        # The id is CARRIED, not printed. A swipe-reply still binds, because
+        # the relay reads the same zero-width encoding out of
+        # replied_message.text -- which hands back the raw source. Printing
+        # "(id atyxx)" put bookkeeping in front of the reader for no benefit
+        # to them.
+        hint = "reply to keep it going" + hidden.encode(rid)
     elif at_ceiling:
         # Say what the limit is and what to do, rather than just going quiet.
         hint = (f"that's {cfg.max_block_streak} replies in a row without me "
