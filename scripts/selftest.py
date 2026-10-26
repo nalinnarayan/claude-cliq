@@ -412,8 +412,12 @@ class Routing(unittest.TestCase):
         got = collect._drain(self.cfg, relay, "aaaaa")
         self.assertIsNone(got)
         self.assertTrue(waiter.armed("aaaaa"), "still waiting for a real answer")
-        self.assertTrue(any("minutes ago" in (m.get("text") or "") for m in relay.sent),
-                        "and the person is told why")
+        # The intent, not the wording: the old phrasing ("more than 30 minutes
+        # ago") was what made the notice read as though the message just sent
+        # had bounced, so it is deliberately gone.
+        said = " ".join(m.get("text") or "" for m in relay.sent)
+        self.assertIn("worse than dropping", said, "the person is told why")
+        self.assertIn("Nothing you just sent", said, "and what is NOT affected")
 
     def test_a_bound_reply_naming_nothing_is_dropped_not_rerouted(self):
         # Re-routing it would put one question's answer into another's waiter.
@@ -985,6 +989,52 @@ class PlanMode(unittest.TestCase):
         self.assertEqual(plan.caption_for("# Sending a plan\n\nbody"), "Sending a plan")
         self.assertEqual(plan.caption_for("\n\n   \n"), "A plan to look over.")
         self.assertLessEqual(len(plan.caption_for("#  " + "x" * 900)), plan.MAX_CAPTION)
+
+
+class StaleNotice(unittest.TestCase):
+    """The notice about replies too old to pass on.
+
+    It lands whenever the sweep next runs, which is usually right after a NEW
+    message -- so it read as though that message had bounced. Reported exactly
+    that way: "it feels like the last message I sent was not received".
+    """
+
+    def setUp(self):
+        clean()
+
+    def test_it_says_the_latest_message_is_not_the_one_affected(self):
+        relay = FakeRelay()
+        spool.add([row("1", "an old thought", age_s=3 * 3600)])
+        collect._route_spooled(Config(stale_after_seconds=1800), relay, "zzzzz")
+        said = relay.sent[0]["text"]
+        self.assertIn("Nothing you just sent is affected", said)
+
+    def test_it_gives_a_clock_time_not_just_an_age(self):
+        # "More than 30 minutes ago" invites the reader to assume it means the
+        # message they just sent. A timestamp cannot be misread that way.
+        relay = FakeRelay()
+        spool.add([row("1", "an old thought", age_s=3 * 3600)])
+        collect._route_spooled(Config(stale_after_seconds=1800), relay, "zzzzz")
+        self.assertRegex(relay.sent[0]["text"], r"\*\d\d:\d\d\*",
+                         "each stale reply is stamped with when it was sent")
+
+    def test_the_preview_does_not_cut_mid_word(self):
+        # The reported notice ended "...as a session here in Cliq. H", which
+        # reads like corruption rather than truncation.
+        long = "word " * 80
+        out = collect._clip(long, 150)
+        self.assertTrue(out.endswith("…"))
+        self.assertNotIn("  ", out)
+        self.assertLessEqual(len(out), 151)
+        self.assertTrue(out[:-1].rstrip().endswith("word"), "cut on a boundary")
+
+    def test_many_stale_replies_are_summarised_not_listed(self):
+        relay = FakeRelay()
+        spool.add([row(str(i), f"old thought {i}", age_s=3 * 3600)
+                   for i in range(6)])
+        collect._route_spooled(Config(stale_after_seconds=1800), relay, "zzzzz")
+        said = relay.sent[0]["text"]
+        self.assertIn("and 3 more", said, "three shown, the rest counted")
 
 
 class CliqMarkup(unittest.TestCase):

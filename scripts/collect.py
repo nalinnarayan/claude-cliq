@@ -284,6 +284,15 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         f"a plain reply belongs to")
 
 
+def _clip(text: str | None, limit: int) -> str:
+    """One line, cut on a word boundary. A mid-word cut reads like corruption."""
+    flat = _plain(text)
+    if len(flat) <= limit:
+        return flat
+    cut = flat.rfind(" ", 0, limit)
+    return flat[:cut if cut > limit * 0.6 else limit].rstrip() + "…"
+
+
 def _has_attachment(text: str) -> bool:
     """Did this reply bring a file? That is what makes more likely to follow."""
     return "[image attached:" in text or "[file attached:" in text \
@@ -329,13 +338,32 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
     """
     stale = spool.prune(cfg.stale_after_seconds)
     if stale:
-        preview = "\n".join(f"- _{s['text'][:120]}_" for s in stale[:3])
+        # This notice lands whenever the sweep next runs, which is usually
+        # right after a NEW message -- so it reads as though that message
+        # bounced. Reported exactly that way: "it feels like the last message
+        # I sent was not received."
+        #
+        # A threaded reply quoting the original would be the natural answer and
+        # is not available: the v3 bot message takes no reply field, and a
+        # Deluge message handler is given no message id to reply TO -- only
+        # message_details.time. So the message has to carry the context itself:
+        # say plainly that nothing just sent is affected, and give each one's
+        # clock time rather than a relative age that invites the reader to
+        # assume it means "the one I just sent".
+        lines = []
+        for item in stale[:3]:
+            when = time.strftime("%H:%M", time.localtime(item.get("ts") or 0))
+            lines.append(f"- *{when}* — _{_clip(item.get('text'), 150)}_")
+        preview = "\n".join(lines)
+        extra = f"\n(and {len(stale) - 3} more)" if len(stale) > 3 else ""
         mins = int(cfg.stale_after_seconds // 60)
         _notify(relay,
-                f"These came in more than {mins} minutes ago, so I haven't "
-                f"passed them on — answering a question with them now would "
-                f"be worse than dropping them:\n\n{preview}\n\n"
-                f"Send them again if they're still what you meant.")
+                f"*Nothing you just sent is affected* — this is about an "
+                f"older message.\n\nIt waited more than {mins} minutes "
+                f"without a session to go to, and answering a question with "
+                f"it now would be worse than dropping it:"
+                f"\n\n{preview}{extra}\n\n"
+                f"Send it again if it is still what you meant.")
 
     mine = None
     taken: list[str] = []

@@ -576,6 +576,35 @@ reached Cliq. And then that **auto mode** was suppressing the prompts
 entirely, which is itself a consequence of approving a plan with "auto mode",
 a thing this bridge now does.
 
+### A bot cannot reply TO a message, so the message must carry its context
+
+Asked for: have the "not delivered" notice reply to the original message
+rather than arrive as loose text, because *"it feels like the last message I
+sent was not received by Claude"*.
+
+The complaint is exact. The staleness sweep runs whenever the next fetch
+happens, which is usually right after a NEW message -- so the notice lands
+directly beneath something that arrived perfectly well, and reads as a bounce
+of it.
+
+A threaded reply is the natural answer and is not available, for two
+independent reasons:
+
+- the v3 bot message accepts only `text`, `slides`, `buttons`, `card`, `bot`
+  and hard-errors on anything else; nothing documents a reply or thread field
+  for a bot;
+- and there would be no id to reply to. A Deluge **message handler** is given
+  no message id at all -- only `message_details.time`, which is why the
+  idempotency key is `mdtime-<user>-<epoch>`. That key is ours, not Cliq's.
+
+So the context has to travel inside the message instead. It now opens by
+saying **nothing just sent is affected**, and stamps each stale reply with the
+**clock time it was sent** rather than a relative age -- "more than 30 minutes
+ago" is precisely the phrasing that invites the reader to think of the message
+they just sent. The preview also cuts on a word boundary; the reported one
+ended "...as a session here in Cliq. H", which reads as corruption rather than
+truncation.
+
 ### Two tildes strike out everything between them
 
 Reported with a screenshot: a permission message showing a Bash command
