@@ -840,12 +840,26 @@ Each candidate was tried in turn with a tag naming the winner, so one paste
 both fixed it and answered what a handler has:
 
 ```
-message_details.message.id    null
-message_details.id            null
-message_details.message_id    null
-message_details.message.time  null
-message_details.time          WORKS  -- epoch milliseconds
+message_details.message.id          null
+message_details.id                 null
+message_details.message_id         null
+message_details.message.time       null
+message_details.message.ack_key    null
+message_details.message.content.id null
+message_details.ack_key            null
+message_details.time               WORKS  -- epoch milliseconds
 ```
+
+The last three were added after a fair challenge: the documented **message
+object** (`cliq-objects/message-object.html`) lists both `id` and `ack_key`
+and nests the body under `content`, and the first probe had tried none of
+those. Four paths ruled out is not the same as all of them. They are null too,
+so the conclusion holds -- now on seven paths rather than four.
+
+That page is evidently describing a different context. It puts the text at
+`content.text` and a file's caption at `content.comment`, while a handler
+reads both directly off `message` and they work. A **button** function's
+`message` object does carry an `id`, which is the likely subject.
 
 **A handler is given no message id at all**, even though a *button* function's
 `message` object carries one -- consistent with the earlier finding that the

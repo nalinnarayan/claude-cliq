@@ -533,7 +533,15 @@ def _drain(cfg: Config, relay: Relay, want: str) -> dict | None:
         return None
     rows = res.get("messages", [])
     if rows:
-        log(f"collect: fetched {len(rows)}")
+        # The TAG of each id -- the part before the first dash, naming which
+        # Cliq field the handler got it from. Just the tag: the rest carries a
+        # user id and a timestamp and is nobody's business in a log. Added
+        # because a message arrived, was routed and was dropped before anyone
+        # could see which source had answered, which is the whole question a
+        # probe like this exists to settle.
+        tags = ",".join(sorted({str(r.get("id") or "?").split("-")[0]
+                                for r in rows}))
+        log(f"collect: fetched {len(rows)} (id source: {tags})")
         try:
             SERVED_PATH.write_text(json.dumps({"mode": _mode, "ts": time.time(),
                                                "count": len(rows)}))
