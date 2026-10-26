@@ -542,6 +542,38 @@ reported, not dropped silently -- the failure this whole change is about.
 A code fence split across a boundary is closed and reopened, or everything
 after the break renders as one code block.
 
+### One session looked like three, for two reasons at once
+
+Reported with a screenshot of the chooser: *"I'm only working on one session.
+Why was it showing three sessions?"* It listed
+`detect-dead-doorbell-connection`, `send-plan-to-cliq` and
+`send-plan-to-cliq·2`. All three were the same session.
+
+**A session can have several things waiting.** The chooser offers one button
+per waiting REQUEST -- a finished turn, a question, a plan -- which is correct,
+since each needs its own answer. But it labelled each by **session title**, and
+the title is captured when the waiter is armed while Claude Code renames a
+session as it goes. So waiters armed at different moments carried different
+names, and one session appeared under two.
+
+**And the waiters should not all have been there.** `ask.py` and `plan.py`
+passed no `tool_use_id` to `block_for_reply`, so `on_settled.py` had nothing to
+match and could not disarm them when the question was answered at the terminal.
+Only `on_permission.py` passed one. Each `ExitPlanMode` rejected at the
+terminal that day left its waiter armed for the full 1800-second window, and
+they accumulated.
+
+Both fixed: a question's waiter is now cancellable like a permission's, and
+when every waiter shares a session the chooser says *"3 things are waiting in
+<name>. Which one?"* and labels each by what it is waiting about rather than
+repeating the name.
+
+The test fixture had hidden this. `Chooser.arm` gave every waiter
+`session_id="s"`, which is never true of two real sessions -- so the suite had
+only ever exercised the many-sessions case while the many-waits-in-one-session
+case, the one a user actually hit, went untested. Each waiter now gets its own
+session id by default, and the shared-session case is a test of its own.
+
 ### 100 characters was the field we chose, not a Cliq limit
 
 Reported: "that field has a 100-char limit which is very restrictive." It is

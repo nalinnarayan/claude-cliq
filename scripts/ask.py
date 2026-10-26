@@ -160,7 +160,12 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
         return 0                          # relay down: the terminal has it
 
     log(f"ask: sent {rid}, waiting")
+    # tool_use_id so on_settled can DISARM this waiter when the question is
+    # answered at the terminal instead. Without it the waiter sat armed for
+    # its full window, and every abandoned one showed up in the chooser as
+    # another "session" to pick from.
     reply = H.block_for_reply(cfg, rid, session_id=session_id, kind="ask",
+                              tool_use_id=payload.get("tool_use_id", ""),
                               cwd=cwd, topic=render(questions)[:160])
     log(f"ask: {rid} -> {(reply or {}).get('type', 'nothing')}")
     if not reply:

@@ -466,9 +466,55 @@ class Chooser(unittest.TestCase):
         clean()
         self.cfg = Config(stale_after_seconds=1800)
 
-    def arm(self, rid, cwd):
-        waiter.arm(rid, session_id="s", kind="finished", cwd=cwd,
-                   expires_at=time.time() + 60)
+    def arm(self, rid, cwd, session_id=None):
+        # A DISTINCT session per waiter by default, because that is what these
+        # tests are about. They all shared one id before, which was never true
+        # of two real sessions and hid the case where several things wait
+        # inside ONE session -- the case that showed a single session as
+        # three.
+        waiter.arm(rid, session_id=session_id or f"sess-{rid}", kind="finished",
+                   cwd=cwd, expires_at=time.time() + 60)
+
+    def test_several_waits_in_ONE_session_are_not_shown_as_several_sessions(self):
+        # Reported: "I'm only working on one session. Why was it showing three
+        # sessions?" Because a session can have several things waiting -- a
+        # finished turn and two plans -- and the chooser named each by session
+        # title. The title is captured when a waiter is armed, and Claude Code
+        # renames a session as it goes, so one session appeared under two
+        # names.
+        import json as _j
+        for rid, kind, title in (("aaaaa", "finished", "detect-dead-doorbell"),
+                                 ("bbbbb", "ask", "send-plan-to-cliq"),
+                                 ("ccccc", "ask", "send-plan-to-cliq")):
+            waiter.arm(rid, session_id="the-one-session", kind=kind,
+                       cwd="/Users/nalin-20844/claude-cliq",
+                       expires_at=time.time() + 60)
+            path = waiter._path(rid)
+            d = _j.loads(path.read_text()); d["title"] = title
+            path.write_text(_j.dumps(d))
+
+        relay = FakeRelay([[row("1", "commit and push")]])
+        collect._drain(self.cfg, relay, "zzzzz")
+        text = relay.sent[0]["text"]
+        labels = [a["label"] for a in relay.sent[0]["answers"]]
+
+        self.assertNotIn("Which one is this for?", text,
+                         "that wording implies several sessions")
+        self.assertIn("3 things are waiting", text, "says what is really going on")
+        # Named once, by its NEWEST title: waiters are newest-first, and an
+        # older one carries whatever the session was called when it was armed,
+        # which is the very thing that made one session look like several.
+        self.assertRegex(text, r"waiting in \*[^*]+\*", "names the session once")
+        self.assertEqual(text.count("send-plan-to-cliq")
+                         + text.count("detect-dead-doorbell"), 1,
+                         "and only once, not per waiter")
+        # Labelled by WHAT is waiting, since the name is the same on each.
+        self.assertIn("Finished turn", labels)
+        self.assertIn("A question", labels)
+        self.assertEqual(len(set(labels)), 3,
+                         "three distinct buttons, the repeat suffixed")
+        self.assertTrue(any("·" in l for l in labels),
+                        "two questions in one session are still tellable apart")
 
     def test_two_sessions_waiting_produces_a_question_not_a_guess(self):
         self.arm("aaaaa", "/x/proj-a")
@@ -526,7 +572,9 @@ class Chooser(unittest.TestCase):
         # basename is "nalin-20844", which identifies nothing.
         for rid, title in (("aaaaa", "replace-polling-with-data-streams"),
                            ("bbbbb", "assured video recut")):
-            waiter.arm(rid, session_id="s", kind="finished",
+            # Distinct sessions: two names only tell things apart when there
+            # really are two sessions to name.
+            waiter.arm(rid, session_id=f"sess-{rid}", kind="finished",
                        cwd="/Users/nalin-20844", expires_at=time.time() + 60)
             path = waiter._path(rid)
             import json as _j

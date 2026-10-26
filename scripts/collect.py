@@ -87,6 +87,16 @@ FETCH_TIMEOUT = 45
 # one would be a different and worse bug.
 COALESCE_WINDOW = 90.0
 
+# What a waiter is waiting about, for when several belong to one session and
+# the session's name no longer tells them apart. Twenty characters or fewer:
+# Cliq rejects the whole message on a longer button label.
+KIND_LABELS = {
+    "finished": "Finished turn",
+    "ask": "A question",
+    "permission": "A permission",
+    "trouble": "An error",
+}
+
 
 class _Leadership:
     """Non-blocking flock. Absent means someone else is leading."""
@@ -193,6 +203,18 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
     # input_maxlength_reached on the key 'label'. "claude-cliq (question)" is
     # 22 and silently cost a chooser. The folder alone is the useful part, so
     # what kind of thing each session wants goes in the text instead.
+    # One session can have SEVERAL things waiting -- a finished turn and a
+    # plan, say -- and each is a separate request needing its own answer. The
+    # chooser listed them by session title, and since the title is captured
+    # when a waiter is armed and Claude Code renames a session as it goes, one
+    # session appeared under two names. Reported as "I'm only working on one
+    # session. Why was it showing three?"
+    #
+    # So when they share a session, say so once and label each by what it is
+    # waiting about instead of repeating the name.
+    sessions = {w.get("session_id") for w in armed[:5]}
+    one_session = len(sessions) == 1 and len(armed[:5]) > 1
+
     answers, lines, seen = [], [], set()
     for w in armed[:5]:
         # The session's own name first -- the one Claude Code's /resume picker
@@ -210,7 +232,10 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         if not title:
             title = " ".join(waiter.session_title(
                 w.get("session_id", ""), w.get("cwd", "")).split())
-        base = title or where
+        # Within one session the name is the same on every button, so the
+        # kind of thing waiting is what distinguishes them.
+        base = (KIND_LABELS.get(w.get("kind"), w.get("kind") or "reply")
+                if one_session else (title or where))
         label = base[:20]
         while label in seen:                 # two sessions, one name
             label = f"{base[:18]}·{len(seen)}"
@@ -223,12 +248,22 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
         # whitespace in a continuation line, so spaces or a tab simply vanish
         # and the question runs flush against the name above it.
         topic = _plain(w.get("topic"))[:110]
-        head = f"- *{title or where}*" + (f" ({where})" if title else "")
+        if one_session:
+            head = f"- *{KIND_LABELS.get(w.get('kind'), 'A reply')}*"
+        else:
+            head = f"- *{title or where}*" + (f" ({where})" if title else "")
         lines.append(head + (f"\n\u2003\u2003_{topic}_" if topic else ""))
     more = "" if len(armed) <= 5 else f"\n\n({len(armed) - 5} more not shown)"
     body = "\n".join(lines)
+    # Name the session once when they all belong to it, rather than implying
+    # there are several.
+    if one_session:
+        only = " ".join((armed[0].get("title") or "").split()) or "this session"
+        head_line = f"{len(armed[:5])} things are waiting in *{only}*. Which one?"
+    else:
+        head_line = "Which one is this for?"
     sent = _notify(relay,
-                   f"Which one is this for?\n\n{body}{more}\n\n"
+                   f"{head_line}\n\n{body}{more}\n\n"
                    f"_{_plain(item['text'])[:160]}_",
                    kind="choose", answers=answers,
                    hint="tap one — I've kept what you typed")

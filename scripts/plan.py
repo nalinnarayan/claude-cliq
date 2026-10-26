@@ -184,7 +184,12 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
     # considered. `kind="ask"` also unlocks the routing that lets a one-word
     # reply be an answer rather than a verdict.
     log(f"plan: sent {rid} ({len(plan)} chars), waiting")
+    # tool_use_id so on_settled can DISARM this waiter when the question is
+    # answered at the terminal instead. Without it the waiter sat armed for
+    # its full window, and every abandoned one showed up in the chooser as
+    # another "session" to pick from.
     reply = H.block_for_reply(cfg, rid, session_id=session_id, kind="ask",
+                              tool_use_id=payload.get("tool_use_id", ""),
                               cwd=cwd, topic=caption_for(plan)[:160])
     log(f"plan: {rid} -> {(reply or {}).get('type', 'nothing')}")
     if not reply or reply.get("type") == "cancelled":
