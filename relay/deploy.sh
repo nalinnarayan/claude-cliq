@@ -91,16 +91,16 @@ json.dump(cfg, open(cfg_path, "w"), indent=2)
 print(f"injected {len(env)} env vars: {', '.join(sorted(env))}")
 PY
 
-# A token, when one is saved for this environment, so deploying does not
-# depend on which account the CLI happens to be logged into. The CLI holds one
-# session at a time and the two environments live in different accounts, so
-# without this every switch is a browser login -- and a deploy aimed at the
-# wrong account is the expensive mistake here.
-TOKEN_FILE=".catalyst-token${SUFFIX:+.$SUFFIX}"
-if [ -f "$TOKEN_FILE" ]; then
-  echo "auth     : token from $TOKEN_FILE"
-  catalyst deploy --only functions --token "$(cat "$TOKEN_FILE")"
-else
-  echo "auth     : the CLI's current login ($(catalyst whoami 2>/dev/null | tail -1 | sed 's/.*: //'))"
-  catalyst deploy --only functions
-fi
+# Which ACCOUNT this lands in comes from the CLI's login, and nothing here can
+# override it: `--token` was tried and is simply ignored -- `catalyst --token X
+# whoami` reports the logged-in user, and reports "not logged in" when there is
+# no session at all. Tokens are for a remote system with no login, not for
+# switching accounts locally.
+#
+# The CLI holds one session, stored in
+# ~/Library/Preferences/zcatalyst-cli-nodejs/zcatalyst-cli-v1.json. Swapping
+# that file switches accounts instantly, with no browser login -- which is the
+# only workable way to drive two environments in two accounts. `catalyst
+# logout` does NOT clear it; it confirms and leaves the session in place.
+echo "auth     : $(catalyst whoami 2>/dev/null | tail -1 | sed 's/.*: //')"
+catalyst deploy --only functions

@@ -243,23 +243,20 @@ test('a caption cannot forge a marker through inbound', async () => {
 // Answering and cancelling, which had no coverage at all.
 // ---------------------------------------------------------------------------
 
-test('cancelling hands the session back instead of holding it', async () => {
-  // The form carries trigger_on_cancel so a dismissal REACHES us: the session
-  // is released at once rather than held for the rest of its 30-minute
-  // window. The reply said "Left it for the terminal.", which was asked about
-  // -- it explained neither what had happened nor what to do next.
+test('a cancel queues nothing at all', async () => {
+  // It used to queue a release, so dismissing a form handed the question back
+  // to the terminal -- then a second answer from Cliq was accepted and
+  // acknowledged while nothing was listening. Cliq no longer calls this on a
+  // dismissal (trigger_on_cancel is false), and the path is inert as well, so
+  // re-enabling that flag cannot quietly restore the old behaviour.
   const h = harness();
   const res = await h.relay.askSubmit({
     headers: { 'x-relay-secret': 'topsecret' },
     body: { cliq_user: 'u1', name: 'abcde', action: 'cancel' },
   });
-  assert.match(res.text, /Cancelled/, 'says what happened');
-  assert.match(res.text, /terminal/, 'and where the question went');
-
-  const [row] = [...h.store._pending.values()];
-  assert.strictEqual(row.request_id, 'abcde', 'bound to the question it answers');
-  assert.deepStrictEqual(JSON.parse(row.text), { ask: 'cancelled', picked: {} },
-    'a cancellation is queued, not silence -- silence would hold the session');
+  assert.match(res.text, /still open/, 'and says nothing was decided');
+  assert.strictEqual([...h.store._pending.values()].length, 0,
+                     'nothing queued: releasing is the Leave it button now');
 });
 
 test('a submitted answer is queued as a structured answer', async () => {
@@ -269,7 +266,8 @@ test('a submitted answer is queued as a structured answer', async () => {
     body: { cliq_user: 'u1', name: 'abcde', action: 'submit',
             values: { q0: { label: 'Image forwarding', value: '0' } } },
   });
-  assert.strictEqual(res.text, '✓ Sent');
+  assert.strictEqual(res.text, 'Sent to your session.',
+                     'no tick -- the relay cannot see whether anyone listened');
   const [row] = [...h.store._pending.values()];
   const parsed = JSON.parse(row.text);
   assert.strictEqual(parsed.ask, 'answered');

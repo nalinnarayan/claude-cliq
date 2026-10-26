@@ -373,7 +373,16 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
 
       // An empty answer is the chooser: the laptop already holds the text and
       // only needs to be told which request it belongs to.
-      const ANSWERS = { allow: 'yes', deny: 'no', all: 'all', pick: '' };
+      //
+      // `leave` releases the question to the terminal, which is what
+      // dismissing the form used to do by implication. It queues the SAME
+      // sentinel the cancel path produced, so the laptop needs no new
+      // handling: waiter.route reads it as `cancelled`, and the hook emits no
+      // decision, which is how a question is handed back.
+      const ANSWERS = {
+        allow: 'yes', deny: 'no', all: 'all', pick: '',
+        leave: JSON.stringify({ ask: 'cancelled', picked: {} }),
+      };
       const ans = String(body.ans || 'pick').trim().toLowerCase();
       if (!(ans in ANSWERS)) throw new HttpError(400, `unknown answer: ${ans}`);
 
@@ -506,13 +515,21 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         return { type: 'form_error', text: 'Pick at least one answer.' };
       }
 
+      // A cancel queues NOTHING. trigger_on_cancel is false so Cliq should
+      // never call this with one, but making the path itself inert means
+      // re-enabling that flag cannot quietly restore "a dismissal releases the
+      // question" -- the behaviour being fixed.
+      if (cancelled) {
+        return { text: 'Nothing sent — the question is still open.' };
+      }
+
       await store.putPending({
         id: `ask-${req}-${now()}`,
         cliq_user: cliqUser,
         request_id: req,
         // A sentinel, so the collector treats this as a structured answer and
         // never regexes it for yes/no the way it would a typed reply.
-        text: JSON.stringify({ ask: cancelled ? 'cancelled' : 'answered', picked }),
+        text: JSON.stringify({ ask: 'answered', picked }),
         ts: now(),
         expires: now() + PENDING_TTL_MS,
         retain: storesBody(cliqUser),
@@ -523,11 +540,14 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       // terminal, rather than leaving it held for the rest of its window.
       // Worth saying outright -- "Left it for the terminal." was asked about,
       // which means it explained neither what happened nor what to do next.
-      return {
-        text: cancelled
-          ? 'Cancelled — nothing sent. The question is waiting at your terminal.'
-          : '✓ Sent',
-      };
+      // Not "✓ Sent". The relay stores the answer; it cannot know whether any
+      // hook is still listening, because waiters are laptop-side state it
+      // deliberately does not hold. Claiming delivery here is how a
+      // submission after a dismissal was confirmed to a user while nothing
+      // was listening -- the third time today a success message outran what
+      // it could actually see. The laptop says so when it finds nothing
+      // waiting, so this describes only what the relay really did.
+      return { text: 'Sent to your session.' };
     },
 
     /**

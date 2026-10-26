@@ -177,7 +177,12 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
     if not H.send(relay, kind="ask", text=text, request_id=rid,
                   session_id=session_id, cwd=cwd, expects_reply=True,
                   hint="tap Answer to choose",
-                  answers=[{"label": "Answer", "value": "form", "req": rid}]):
+                  # "Leave it" exists because dismissing the form no longer
+                  # releases the question -- closing a form is usually just
+                  # re-reading it, not a decision. Giving up now has to be
+                  # said rather than inferred.
+                  answers=[{"label": "Answer", "value": "form", "req": rid},
+                           {"label": "Leave it", "value": "leave", "req": rid}]):
         return 0                          # relay down: the terminal has it
 
     # The question window, not the 300s permission one: a plan is read and

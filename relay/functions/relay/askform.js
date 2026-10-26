@@ -174,9 +174,20 @@ function buildForm(requestId, questions, { submitFn = 'claudeCliqAskSubmit' } = 
     hint: 'Your pick goes straight back to the session that asked.',
     button_label: 'Send',
     version: 1,
-    // So a dismissal reaches us and the session is released at once rather
-    // than held for the rest of its window.
-    trigger_on_cancel: true,
+    // FALSE: dismissing the form must do nothing at all.
+    //
+    // It was true so that a dismissal released the session at once rather than
+    // holding it for the rest of its window. That read a dismissal as a
+    // decision, and it usually is not one -- the common reason to close a form
+    // is to re-read the question behind it. Reported with a screenshot: the
+    // bot said "Cancelled", the question went back to the terminal, and the
+    // next answer from Cliq was accepted and acknowledged while nothing was
+    // listening.
+    //
+    // Off, rather than on-and-ignored, so there is no code path to get wrong:
+    // Cliq simply does not call us. Releasing the session has its own button
+    // on the message now, where the intent is stated rather than inferred.
+    trigger_on_cancel: false,
     action: { type: 'invoke.function', name: submitFn, mode: 'immediate' },
     inputs,
   };

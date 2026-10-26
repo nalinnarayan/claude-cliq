@@ -283,6 +283,35 @@ In practice the server-side call is accepted.
 Also settled: the datacenter resolves itself. The ticket comes back with
 `url: in2-dms.zoho.in`, so nothing has to know we are on `.in`.
 
+### Switching Catalyst accounts means swapping a file, not logging in
+
+Two environments in two accounts, and the CLI holds exactly one session. Three
+things measured while trying to drive both:
+
+**`catalyst logout` does not log you out.** It names the account, asks for
+confirmation, accepts it -- and `whoami` still reports the same user
+afterwards. Twice, on two different accounts.
+
+**`--token` is ignored.** `catalyst --token <t> whoami` reports the logged-in
+user, and reports "Not logged in" when the session is parked, so the token
+changes nothing either way. Worse, passing it to `deploy` makes the deploy fail
+with "The Catalyst portal initialized in the current project directory is not
+accessible with the currently logged in user" -- an error about the *account*
+that is actually caused by the flag. A token is for a remote system with no
+login, not for switching accounts locally.
+
+**Swapping the credential file works instantly.** The session lives in
+`~/Library/Preferences/zcatalyst-cli-nodejs/zcatalyst-cli-v1.json`. Moving it
+aside leaves the CLI genuinely logged out; copying another account's copy back
+restores that account with no browser round trip. Keeping one per account --
+`.zohotest`, `.zohocorp` -- makes switching environments a one-line operation
+rather than an OAuth flow that, in this harness, could not complete at all.
+
+Also worth recording: `catalyst login` cannot be completed through a
+non-interactive shell. It answers the telemetry prompt and exits without ever
+printing a device code, because it wants more input than one line. It has to be
+run in a real terminal.
+
 ### A Stratus bucket name is globally unique, not per account
 
 Hit while setting up a second environment: *"A bucket with this name already

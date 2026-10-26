@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { createRelay, sha256 } = require('../functions/relay/core.js');
+const { buildForm } = require('../functions/relay/askform.js');
 
 // In-memory stand-in for the Catalyst NoSQL tables.
 function memStore() {
@@ -283,6 +284,43 @@ test('a mangled carrier leaves the reply unbound rather than misbound', async ()
     replied_text: `reply to keep it going\u2060\u200b\u200b\u2060` } });
   const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
   assert.strictEqual(got.messages[0].request_id, '', 'unbound, not guessed');
+});
+
+test('Leave it releases the question, the way a dismissal used to', async () => {
+  // Dismissing the form no longer releases anything, so giving up needs a
+  // button. It queues the SAME sentinel the cancel path produced, so the
+  // laptop needs no new handling.
+  const h = harness();
+  const tok = await pairUser(h, 'u1', 'alice@z.com');
+  await h.relay.action({ headers: { 'x-relay-secret': 'topsecret' },
+                         body: { cliq_user: 'u1', req: 'abcde', ans: 'leave' } });
+  const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
+  assert.strictEqual(got.messages[0].request_id, 'abcde');
+  assert.deepStrictEqual(JSON.parse(got.messages[0].text),
+                         { ask: 'cancelled', picked: {} });
+});
+
+test('dismissing a form cannot reach us at all', () => {
+  // trigger_on_cancel is false, so Cliq never calls the submit function on a
+  // dismissal. Off rather than on-and-ignored, so there is no path to get
+  // wrong: closing a form to re-read the question behind it must do nothing.
+  const form = buildForm('abcde', [{ question: 'Q', options: ['A', 'B'] }]);
+  assert.strictEqual(form.trigger_on_cancel, false);
+});
+
+test('a submission is not confirmed as delivered, only as sent', async () => {
+  // The relay stores the answer and cannot know whether any hook is
+  // listening -- waiters are laptop-side state it does not hold. "✓ Sent"
+  // was confirmed to a user whose question had already gone back to the
+  // terminal.
+  const h = harness();
+  const res = await h.relay.askSubmit({
+    headers: { 'x-relay-secret': 'topsecret' },
+    body: { cliq_user: 'u1', name: 'abcde', action: 'submit',
+            values: { q0: { label: 'A', value: '0' } } },
+  });
+  assert.doesNotMatch(res.text, /✓/, 'no tick: nothing was confirmed');
+  assert.match(res.text, /Sent to your session/);
 });
 
 test('peek shows what is queued without consuming it', async () => {

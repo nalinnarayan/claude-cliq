@@ -131,7 +131,11 @@ test('the request id becomes the form name, which is the whole binding', () => {
   const form = buildForm('abcde', [{ question: 'Q', options: ['A', 'B'] }]);
   assert.strictEqual(form.name, 'abcde');
   assert.strictEqual(form.action.type, 'invoke.function');
-  assert.strictEqual(form.trigger_on_cancel, true, 'so a dismissal releases the session');
+  // FALSE now: a dismissal must do nothing. It used to release the question,
+  // which read closing a form as a decision -- and closing one is usually just
+  // re-reading the question behind it.
+  assert.strictEqual(form.trigger_on_cancel, false,
+                     'dismissing must not decide anything');
 });
 
 test('options carry their INDEX, never the label', () => {
