@@ -541,7 +541,13 @@ def _drain(cfg: Config, relay: Relay, want: str) -> dict | None:
         # probe like this exists to settle.
         tags = ",".join(sorted({str(r.get("id") or "?").split("-")[0]
                                 for r in rows}))
-        log(f"collect: fetched {len(rows)} (id source: {tags})")
+        # Whether each row arrived BOUND to a request -- the only way to tell
+        # a swipe-reply that resolved its id from one that merely landed on
+        # the single armed waiter. Both reach the same place when one session
+        # is waiting, which is exactly when a broken carrier would go
+        # unnoticed.
+        bound = ",".join(r.get("request_id") or "-" for r in rows)
+        log(f"collect: fetched {len(rows)} (id source: {tags}, bound: {bound})")
         try:
             SERVED_PATH.write_text(json.dumps({"mode": _mode, "ts": time.time(),
                                                "count": len(rows)}))
