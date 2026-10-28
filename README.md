@@ -23,8 +23,7 @@ only be picked up at the terminal.
    `https://cliq.zoho.com/bots/<bot_unique_name>`). It DMs you a pairing code.
 2. In your terminal:
    ```sh
-   claude plugin marketplace add <this-repo>
-   claude plugin install claude-cliq
+   claude plugin install claude-cliq --marketplace <this-repo>
    ```
 3. Pair this machine, using the code from the DM:
    ```

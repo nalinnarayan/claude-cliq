@@ -30,9 +30,18 @@ if(code == null)
 }
 
 msg = "👋 You're subscribed. Two steps to connect this to Claude Code:\n\n";
+// One command, not two: `--marketplace` adds a source that is not registered
+// yet, "under the same checks as 'plugin marketplace add'". The trust prompt
+// is the same; it is the second paste that is gone.
+//
+// Pairing stays separate because it is a slash command INSIDE a session,
+// not a shell command. It could call cliqctl.py directly, but only via a
+// version-pinned path under ~/.claude/plugins/cache, which would break on the
+// next release -- and by then they have the plugin, so the slash command is
+// the better introduction to it anyway.
 msg = msg + "1. In your terminal:\n";
-msg = msg + "```\nclaude plugin marketplace add REPLACE_WITH_REPO\nclaude plugin install claude-cliq\n```\n";
-msg = msg + "2. Then pair this machine:\n";
+msg = msg + "```\nclaude plugin install claude-cliq --marketplace REPLACE_WITH_REPO\n```\n";
+msg = msg + "2. Then, inside Claude Code:\n";
 msg = msg + "```\n/claude-cliq:pair " + code + "\n```\n\n";
 msg = msg + "The code is good for 10 minutes. Once paired, run `/claude-cliq:away on` whenever you step away and I'll ping you here.";
 
