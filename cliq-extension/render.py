@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import pathlib
 import sys
 
@@ -50,9 +52,47 @@ def relay_base() -> str:
     return f"https://{domain}.catalystserverless.{tld}/server/relay"
 
 
+def detect_repo() -> tuple[str, str]:
+    """The marketplace a NEW user would add, and a warning if it looks wrong.
+
+    Taken from the git remote, not from the local marketplace registration.
+    Those differ on purpose: a maintainer registers the working tree as a
+    `directory` source, so edits apply without publishing -- but a teammate
+    cannot add a path on someone else's laptop. The remote is what they need.
+
+    Returns (repo, warning). `repo` falls back to the old placeholder when
+    nothing can be detected, so rendering never silently invents a source.
+    """
+    try:
+        url = subprocess.run(["git", "remote", "get-url", "origin"],
+                             cwd=HERE.parent, capture_output=True, text=True,
+                             timeout=5).stdout.strip()
+    except Exception:
+        url = ""
+    if not url:
+        return "<your-marketplace-repo>", "no git remote found -- pass --repo"
+
+    # github.com/owner/repo(.git) or git@github.com:owner/repo(.git)
+    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
+    repo = m.group(1) if m else url
+
+    # The live blocker, worth saying at render time rather than after a
+    # colleague has already subscribed and received a code.
+    try:
+        out = subprocess.run(["gh", "repo", "view", "--json", "isPrivate"],
+                             cwd=HERE.parent, capture_output=True, text=True,
+                             timeout=10).stdout
+        if json.loads(out or "{}").get("isPrivate"):
+            return repo, (f"{repo} is PRIVATE -- anyone without access will get a "
+                          "pairing code and then fail at `marketplace add`")
+    except Exception:
+        pass
+    return repo, ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", default="<your-marketplace-repo>",
+    ap.add_argument("--repo", default=None,
                     help="what teammates pass to `claude plugin marketplace add`")
     ap.add_argument("--relay", default=None, help="override the relay base URL")
     ap.add_argument("--env", required=True,
@@ -71,6 +111,11 @@ def main() -> int:
     if not ENVFILE.exists():
         print(f"no such env file: {ENVFILE}", file=sys.stderr)
         return 1
+
+    detected, warning = detect_repo()
+    repo = args.repo or detected
+    if warning and not args.repo:
+        print(f"warning    : {warning}", file=sys.stderr)
 
     env = read_env()
     secret = env.get("RELAY_INBOUND_SECRET", "")
@@ -93,7 +138,7 @@ def main() -> int:
                     .replace("REPLACE_WITH_FUNCTION_NAME", fn_name)
                     .replace("REPLACE_WITH_ASK_FUNCTION_NAME", ask_fn)
                     .replace("REPLACE_WITH_ASK_SUBMIT_FUNCTION_NAME", ask_submit_fn)
-                    .replace("REPLACE_WITH_REPO", args.repo))
+                    .replace("REPLACE_WITH_REPO", repo))
         # The bot function is written out under the name it must be CREATED
         # with, so there is no way to paste it into the wrong one.
         if name == "claudeCliqAction.dg":
