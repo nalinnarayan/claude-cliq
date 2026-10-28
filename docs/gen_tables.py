@@ -8,7 +8,7 @@ out = []
 w = out.append
 
 w("# Creating the Data Store tables by hand\n")
-w("Catalyst console → your project (**<project>**) → **Cloud Scale →")
+w("Catalyst console → your project → **Cloud Scale →")
 w("Data Store** → **New Table**.\n")
 w("Every table already has `ROWID`, `CREATORID`, `CREATEDTIME` and")
 w("`MODIFIEDTIME` — Catalyst's system columns. Leave them; the relay deletes")

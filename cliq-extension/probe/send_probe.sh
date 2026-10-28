@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 
 set -a; . "relay/.env.deploy.${CLIQ_ENV:-test}"; set +a   # secrets stay in the environment
 BASE="${CLIQ_BASE_URL:-https://cliq.zoho.com}"
-WHO="${PROBE_USER:-nalin.narayan@zohocorp.com}"
+WHO="${PROBE_USER:?set PROBE_USER to the Cliq account to send the probe to}"
 URL="$BASE/api/v3/bots/$CLIQ_BOT_NAME/messages?zapikey=$CLIQ_ZAPIKEY&user_ids=$WHO"
 
 case "${1:-form}" in

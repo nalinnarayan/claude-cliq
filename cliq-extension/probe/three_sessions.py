@@ -4,11 +4,11 @@ from multiprocessing import Process, Queue
 
 HOME = tempfile.mkdtemp(prefix="three-")
 os.environ["CLAUDE_CLIQ_HOME"] = HOME
-sys.path.insert(0, "/Users/nalin-20844/claude-cliq/scripts")
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
 
 def session(rid, q, home):
     os.environ["CLAUDE_CLIQ_HOME"] = home
-    sys.path.insert(0, "/Users/nalin-20844/claude-cliq/scripts")
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
     import collect, waiter
     from cliqlib import Config
 

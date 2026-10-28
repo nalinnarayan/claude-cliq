@@ -22,15 +22,21 @@ import waiter
 from cliqlib import (CONFIG_PATH, MODES, Relay, RelayError, ensure_block_cap,
                      load_config, mode, new_request_id, save_config, set_mode)
 
-# Where a teammate pairs if they pass no --relay. This is the live relay, not
-# a placeholder: getting it wrong means pairing succeeds against nothing.
-DEFAULT_RELAY = ("https://<project-test>-<org-id-test>.development"
-                 ".catalystserverless.in/server/relay")
+# Deliberately empty. Every deployment has its OWN relay, so there is no
+# correct value to ship -- a baked-in one would point a stranger's pairing at
+# the maintainer's account, where it would either fail or, worse, succeed.
+# The URL reaches the user in the bot's welcome DM and rides on the pair
+# command; CLAUDE_CLIQ_RELAY covers scripted setups.
+DEFAULT_RELAY = os.environ.get("CLAUDE_CLIQ_RELAY", "")
 
 
 def cmd_pair(args) -> int:
     cfg = load_config()
     cfg.relay_url = (args.relay or cfg.relay_url or DEFAULT_RELAY).rstrip("/")
+    if not cfg.relay_url:
+        print("No relay URL. The bot's welcome message has it — paste the whole")
+        print("pair command it gave you, or pass --relay <url>.")
+        return 1
     cfg.device_token = ""                       # a fresh pairing replaces any old one
     relay = Relay(cfg)
     try:

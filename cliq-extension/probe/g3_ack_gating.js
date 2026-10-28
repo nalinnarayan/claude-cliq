@@ -19,7 +19,7 @@ const path = require('path');
 
 // Resolved absolutely: this script lives outside the relay, and node looks
 // for modules next to the SCRIPT, not next to the working directory.
-const SDK = '/Users/nalin-20844/claude-cliq/relay/functions/relay/node_modules/@zcatalyst/datastreams';
+const SDK = require('path').join(__dirname, '/../../relay/functions/relay/node_modules/@zcatalyst/datastreams');
 const { DataStreamsWebSocket } = require(SDK);
 
 const DIR = process.env.TICKET_DIR;

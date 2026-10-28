@@ -1,5 +1,5 @@
 import json, pathlib, sys, time
-sys.path.insert(0, "/Users/nalin-20844/claude-cliq/scripts")
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
 import wake
 
 tp = json.loads(pathlib.Path(sys.argv[1]).read_text())["steps"]["tokenPair"]["result"]

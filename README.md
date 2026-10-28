@@ -25,9 +25,10 @@ only be picked up at the terminal.
    ```sh
    claude plugin install claude-cliq --marketplace <this-repo>
    ```
-3. Pair this machine, using the code from the DM:
+3. Pair this machine, pasting the whole command from the DM — it carries the
+   code and the relay to pair against:
    ```
-   /claude-cliq:pair <code>
+   /claude-cliq:pair <code> <relay-url>
    ```
    Pairing also raises `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` in your
    `~/.claude/settings.json`, and tells you it has. Claude Code stops
@@ -259,8 +260,12 @@ python3 scripts/mockrelay.py --say "your reply"      # act as the user in Cliq
 Relay logic has its own tests, including the cross-user isolation checks:
 
 ```sh
-cd relay && node --test test/core.test.js
+cd relay && node --test test/*.test.js
 ```
+
+The glob rather than the directory: `node --test test/` fails on Node 21 with
+nothing but `exitCode: 1`, which looks exactly like a broken test and is not
+one.
 
 ## How isolation works
 
@@ -287,37 +292,45 @@ file is `0600` and `/claude-cliq:pair` revokes any previous token.
 
 ## Environments
 
-| | Catalyst project | org | Cliq bot |
-| --- | --- | --- | --- |
-| **live** | `<project-test>` (68018000000067002) | <org-id-test> | `<bot-test>` |
-| spare | `<project>` (<project-id>) | <org-id> | `<bot>` |
+Two of everything is worth the trouble: a **production** environment that your
+Cliq account is paired to, and a **test** one to break. They live in separate
+Catalyst accounts, each with its own project, Data Streams channel, Stratus
+bucket, secrets and Cliq bot.
 
-The names are the wrong way round and that is deliberate rather than
-forgotten. The second account was the original, and its Data Store read
-allowance was exhausted on 13 October — 10,000 SELECTs a month, spent in under
-two days by a 30-second poll. The first was stood up to carry on working and
-turned out to be the better environment, so it was promoted rather than
-migrated back. A Cliq bot's `unique_name` cannot be changed after creation, so
-`<bot-test>` is the live bot until someone decides a prettier name is
-worth a fresh bot, new handlers and a re-pair.
-
-Deploying:
+Nothing is shared and nothing is named by default, deliberately — an earlier
+version had an unsuffixed `.env.deploy` meaning "whichever environment is
+current", and a stale copy of it was once deployed over production with older
+secrets, breaking the doorbell with nothing to say why.
 
 ```sh
-catalyst project:use 68018000000067002 --org <org-id-test>
-bash relay/deploy.sh prod            # .env.deploy.prod   -> production
-bash relay/deploy.sh test            # .env.deploy.test   -> test account
-
-# There is no default environment: naming it is required, because the two
-# live in different Catalyst accounts and a deploy aimed at the wrong one
-# replaces its whole env. A saved .catalyst-token.<env> is used when present,
-# so deploying does not depend on which account the CLI is logged into.
+bash relay/deploy.sh prod     # relay/.env.deploy.prod
+bash relay/deploy.sh test     # relay/.env.deploy.test
 ```
 
-Which project a deploy lands in comes from `catalyst project:use`, **not** from
-the env file, so `deploy.sh` prints the active project before it starts. The
-spare account's allowance refreshes monthly and it keeps its own bot and
-handlers, so it is usable as a test environment again without any setup.
+Naming the environment is required; `deploy.sh` with no argument lists what it
+can see and stops. It also refuses an env file missing any variable the code
+reads, because Catalyst **replaces** `env_variables` wholesale, so a short file
+silently unsets the rest.
+
+Which **account** a deploy reaches comes from the CLI's login, and nothing in
+this repo can override it — `--token` is ignored whether or not a session
+exists. The CLI holds one session at a time, in
+`~/Library/Preferences/zcatalyst-cli-nodejs/zcatalyst-cli-v1.json`; swapping
+that file switches accounts instantly, where `catalyst logout` does not
+actually log you out. Keep one copy per account.
+
+Rendering the Deluge handlers follows the same rule:
+
+```sh
+python3 cliq-extension/render.py --env prod     # -> generated/prod/
+python3 cliq-extension/render.py --env test     # -> generated/test/
+```
+
+Both the relay URL and the inbound secret come from that one flag. They used to
+come from different places — the secret from the env file, the URL from the
+CLI's current project binding — so rendering one environment while bound to the
+other produced handlers pointing a bot at the wrong account, refused with
+"bad secret" and no other clue.
 
 ## Known limits
 

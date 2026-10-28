@@ -1,6 +1,6 @@
 """The whole doorbell, end to end: listen for this account's wake, then fetch."""
 import json, pathlib, sys, time, urllib.request
-sys.path.insert(0, "/Users/nalin-20844/claude-cliq/scripts")
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
 import wake
 
 t = json.loads(pathlib.Path(sys.argv[1]).read_text())

@@ -53,7 +53,7 @@ def relay_base() -> str:
     """
     rc = json.loads(RCFILE.read_text())
     domain = rc["projects"][0]["domain"]["name"]
-    # The CLI records e.g. <project>-<org-id>.development. The
+    # The CLI records e.g. <project>-<org id>.development. The
     # data-centre suffix does NOT follow from the domain -- both branches of
     # the ternary that used to live here returned "in", so a project outside
     # the India DC rendered a wrong URL silently and the handlers failed with

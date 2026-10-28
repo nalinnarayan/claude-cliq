@@ -2,7 +2,7 @@
 // it fail open or closed? The relay's /ds-access refuses any connectionName
 // beginning with "deny-". This ticket was minted for exactly such a name.
 const fs = require('fs');
-const SDK = '/Users/nalin-20844/claude-cliq/relay/functions/relay/node_modules/@zcatalyst/datastreams';
+const SDK = require('path').join(__dirname, '/../../relay/functions/relay/node_modules/@zcatalyst/datastreams');
 const { DataStreamsWebSocket } = require(SDK);
 const r = JSON.parse(fs.readFileSync(process.env.TICKET, 'utf8')).steps.tokenPair.result;
 const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);

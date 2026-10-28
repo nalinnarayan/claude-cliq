@@ -1,6 +1,6 @@
 # Creating the Data Store tables by hand
 
-Catalyst console → your project (**<project>**) → **Cloud Scale →
+Catalyst console → your project → **Cloud Scale →
 Data Store** → **New Table**.
 
 Every table already has `ROWID`, `CREATORID`, `CREATEDTIME` and

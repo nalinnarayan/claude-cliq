@@ -539,7 +539,7 @@ class Chooser(unittest.TestCase):
                                  ("bbbbb", "ask", "send-plan-to-cliq"),
                                  ("ccccc", "ask", "send-plan-to-cliq")):
             waiter.arm(rid, session_id="the-one-session", kind=kind,
-                       cwd="/Users/nalin-20844/claude-cliq",
+                       cwd="/Users/dev/claude-cliq",
                        expires_at=time.time() + 60)
             path = waiter._path(rid)
             d = _j.loads(path.read_text()); d["title"] = title
@@ -621,13 +621,13 @@ class Chooser(unittest.TestCase):
         # Claude Code writes an ai-title into each transcript -- the name its
         # own /resume picker shows. It is the only human-readable name a
         # session has, and for one started in the home directory the folder
-        # basename is "nalin-20844", which identifies nothing.
+        # basename is the username, which identifies nothing.
         for rid, title in (("aaaaa", "replace-polling-with-data-streams"),
                            ("bbbbb", "assured video recut")):
             # Distinct sessions: two names only tell things apart when there
             # really are two sessions to name.
             waiter.arm(rid, session_id=f"sess-{rid}", kind="finished",
-                       cwd="/Users/nalin-20844", expires_at=time.time() + 60)
+                       cwd="/Users/dev", expires_at=time.time() + 60)
             path = waiter._path(rid)
             import json as _j
             d = _j.loads(path.read_text()); d["title"] = title

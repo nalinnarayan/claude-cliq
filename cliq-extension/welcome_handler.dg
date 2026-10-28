@@ -42,7 +42,11 @@ msg = "👋 You're subscribed. Two steps to connect this to Claude Code:\n\n";
 msg = msg + "1. In your terminal:\n";
 msg = msg + "```\nclaude plugin install claude-cliq --marketplace REPLACE_WITH_REPO\n```\n";
 msg = msg + "2. Then, inside Claude Code:\n";
-msg = msg + "```\n/claude-cliq:pair " + code + "\n```\n\n";
+// The relay URL rides along because nothing on the user's machine knows
+// it yet: the plugin ships no default (every deployment has its own
+// relay, so a shipped one would point this pairing at someone else's
+// account). Rendered per environment, like every other value here.
+msg = msg + "```\n/claude-cliq:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n\n";
 msg = msg + "The code is good for 10 minutes. Once paired, run `/claude-cliq:away on` whenever you step away and I'll ping you here.";
 
 response.put("text", msg);

@@ -219,7 +219,7 @@ def _ask_which(relay: Relay, item: dict, armed: list[dict]) -> None:
     for w in armed[:5]:
         # The session's own name first -- the one Claude Code's /resume picker
         # shows. The folder is the fallback, and for a session started in the
-        # home directory it is useless ("nalin-20844"), which is what made the
+        # home directory it is useless (just the username), which is what made the
         # buttons unrecognisable.
         where = (w.get("cwd") or "").rstrip("/").split("/")[-1] or "session"
         # Captured when the waiter was armed, but looked up again if it is
