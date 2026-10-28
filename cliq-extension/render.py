@@ -18,7 +18,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 ENVFILE = None            # set from --env; there is deliberately no default
-RCFILE = HERE.parent / "relay" / ".catalystrc"
+RCFILE = None             # set from --env; see the note in relay_base()
 OUT = None                # HERE/"generated"/<env>; set from --env
 
 # Per environment, because two of the five files have the SAME name in both
@@ -39,6 +39,18 @@ def read_env() -> dict:
 
 
 def relay_base() -> str:
+    """The relay URL for the environment being rendered.
+
+    From `.catalystrc.<env>`, NOT the bare `.catalystrc`. The bare one is
+    whichever project the CLI is currently bound to, which moves whenever
+    anyone deploys -- so rendering with --env test while bound to production
+    produced the PRODUCTION url carrying the TEST secret. Every handler in that
+    render would have pointed the test bot at production and been refused with
+    "bad secret", for no visible reason.
+
+    The secret already followed --env. The url has to follow the same flag or
+    the two describe different environments.
+    """
     rc = json.loads(RCFILE.read_text())
     domain = rc["projects"][0]["domain"]["name"]
     # The CLI records e.g. <project>-<org-id>.development. The
@@ -105,8 +117,15 @@ def main() -> int:
     # rather than defaulted, because rendering with the wrong one bakes
     # another account's relay URL and secret into a bot's handlers -- the bot
     # would then talk to the wrong environment and look merely broken.
-    global ENVFILE, OUT
+    global ENVFILE, OUT, RCFILE
     ENVFILE = HERE.parent / "relay" / f".env.deploy.{args.env}"
+    # Per environment, falling back to the active binding only when no
+    # per-environment copy exists.
+    RCFILE = HERE.parent / "relay" / f".catalystrc.{args.env}"
+    if not RCFILE.exists():
+        RCFILE = HERE.parent / "relay" / ".catalystrc"
+        print(f"warning    : no .catalystrc.{args.env}; using the CLI's current "
+              f"binding, which may be another environment", file=sys.stderr)
     OUT = HERE / "generated" / args.env
     if not ENVFILE.exists():
         print(f"no such env file: {ENVFILE}", file=sys.stderr)
