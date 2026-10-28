@@ -177,6 +177,8 @@ CLIQ_BASE_URL          https://cliq.zoho.com   (or .in for that data centre)
 RELAY_INBOUND_SECRET   a long random string, also pasted into both handlers
 DEBUG_USERS            your own Cliq user id, comma separated
 STRATUS_BUCKET         bucket for forwarded images (see below); may be empty
+WELCOME_VIDEO_KEY      object key of the walkthrough DM'd on subscribe; may be empty
+WELCOME_VIDEO_CAPTION  the line that goes with it
 ```
 
 `deploy.sh` refuses to deploy an env file that is missing any variable the code

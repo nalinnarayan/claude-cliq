@@ -65,6 +65,22 @@ function createFiles({ req, bucketName }) {
       return { names, present, holding };
     },
 
+    /**
+     * Is one specific key there?
+     *
+     * getDetails() reports bucket STATISTICS, which are computed periodically
+     * and lag behind an upload -- so a freshly uploaded object shows an
+     * objects_count of 0 and looks missing when it is not. headObject is
+     * authoritative and immediate, which is what a "did my upload land, and
+     * under what key" question actually needs.
+     */
+    async head(key) {
+      const o = await bucket().headObject(key, { throwErr: false });
+      if (!o) return { key, found: false };
+      return { key, found: true,
+               size: Number((o && (o.size || o.content_length)) || 0) || null };
+    },
+
     async put(key, body) {
       if (body.length > MAX_BYTES) {
         const e = new Error('file too large'); e.status = 413; throw e;

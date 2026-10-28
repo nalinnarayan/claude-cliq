@@ -335,3 +335,91 @@ test('peek shows what is queued without consuming it', async () => {
   const got = await h.relay.await_({ headers: bearer(tok), body: { wait: 0 }, sleep });
   assert.strictEqual(got.messages.length, 1, 'await still delivers it');
 });
+
+// ---------------------------------------------------------------------------
+// The onboarding walkthrough, DM'd on subscribe.
+//
+// The property that matters is not that the video arrives -- it is that
+// pairing survives when it doesn't. The welcome TEXT is the Deluge handler's
+// return value, so it only exists if this call answers with a code; a video
+// failure that threw would cost the subscriber their setup instructions.
+// ---------------------------------------------------------------------------
+
+test('the walkthrough is DM\'d to a new subscriber, AFTER the text', async () => {
+  const files = [];
+  const store = memStore();
+  const cliq = {
+    async dm() {},
+    async dmFile(zuid, f) { files.push({ zuid, ...f }); },
+  };
+  const relay = createRelay({
+    store, cliq, inboundSecret: 's', welcomeVideoDelayMs: 0,
+    files: { configured: true, async signedGet(k) { return `https://x/${k}`; } },
+    welcomeVideo: { key: 'assets/walkthrough.mp4', caption: 'a look at it' },
+    fetchImpl: async () => ({ ok: true, status: 200,
+      async arrayBuffer() { return new Uint8Array([1, 2, 3, 4]).buffer; } }),
+  });
+
+  // The ordering this feature exists for: issuing the code must send NOTHING.
+  // That response is what releases the welcome text, so anything sent here
+  // arrives before it -- which is the bug this replaced.
+  const { code } = await relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
+  assert.ok(code);
+  assert.strictEqual(files.length, 0, 'nothing sent while issuing the code');
+
+  await relay.sendWelcomeVideoLater('u1');
+  assert.strictEqual(files.length, 1);
+  assert.strictEqual(files[0].zuid, 'u1', 'to the subscriber, by zuid');
+  assert.strictEqual(files[0].contentType, 'video/mp4');
+  assert.strictEqual(files[0].caption, 'a look at it');
+  assert.strictEqual(files[0].bytes.length, 4, 'the bytes it downloaded');
+});
+
+test('a failing video never costs the subscriber their pairing code', async () => {
+  // Every way this can go wrong, in turn. Each must still yield a usable code
+  // and must not reject -- the send is unawaited in the route, so a rejection
+  // would surface as an unhandled rejection rather than a logged failure.
+  const ways = {
+    'signedGet throws': { signedGet: async () => { throw new Error('stratus down'); } },
+    'object missing': { signedGet: async () => null },
+    'download refused': { fetchImpl: async () => ({ ok: false, status: 403 }) },
+    'download throws': { fetchImpl: async () => { throw new Error('socket hang up'); } },
+    'cliq upload fails': { dmFileThrows: true },
+  };
+  for (const [name, w] of Object.entries(ways)) {
+    const store = memStore();
+    const cliq = {
+      async dm() {},
+      async dmFile() { if (w.dmFileThrows) throw new Error('cliq 429'); },
+    };
+    const relay = createRelay({
+      store, cliq, inboundSecret: 's', welcomeVideoDelayMs: 0,
+      files: { configured: true,
+               signedGet: w.signedGet || (async (k) => `https://x/${k}`) },
+      welcomeVideo: { key: 'assets/walkthrough.mp4' },
+      fetchImpl: w.fetchImpl || (async () => ({ ok: true, status: 200,
+        async arrayBuffer() { return new Uint8Array([1]).buffer; } })),
+    });
+    const { code } = await relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
+    assert.ok(code, `${name}: a code is still issued`);
+    assert.strictEqual(await relay.sendWelcomeVideoLater('u1'), false,
+                       `${name}: reports failure rather than throwing`);
+    const { device_token } = await relay.pair({ body: { code } });
+    assert.ok(device_token, `${name}: and it still pairs`);
+  }
+});
+
+test('no video is sent when it is not configured', async () => {
+  let called = 0;
+  const store = memStore();
+  const cliq = { async dm() {}, async dmFile() { called += 1; } };
+  for (const opts of [{},
+                      { welcomeVideo: { key: 'k' }, files: { configured: false } }]) {
+    const relay = createRelay({ store, cliq, inboundSecret: 's',
+                                welcomeVideoDelayMs: 0, ...opts });
+    const { code } = await relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
+    assert.ok(code);
+    assert.strictEqual(await relay.sendWelcomeVideoLater('u1'), false);
+  }
+  assert.strictEqual(called, 0, 'nothing uploaded, no Stratus read attempted');
+});

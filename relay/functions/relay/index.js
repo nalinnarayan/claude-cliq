@@ -52,6 +52,13 @@ function relayFor(req) {
     // Attachment storage. Absent STRATUS_BUCKET the file routes answer 503
     // and everything else carries on exactly as before.
     files: createFiles({ req, bucketName: process.env.STRATUS_BUCKET || '' }),
+    // The onboarding walkthrough, DM'd on subscribe. Absent the key nothing
+    // is sent and the welcome behaves exactly as it did before.
+    welcomeVideo: process.env.WELCOME_VIDEO_KEY ? {
+      key: process.env.WELCOME_VIDEO_KEY,
+      caption: process.env.WELCOME_VIDEO_CAPTION || '',
+      filename: process.env.WELCOME_VIDEO_FILENAME || 'claude-cliq-walkthrough.mp4',
+    } : null,
   });
 }
 
@@ -87,7 +94,7 @@ app.post('/file-url',    route((r, req) => r.fileUrl({ headers: req.headers, bod
 app.post('/notify-file',
   express.raw({ type: '*/*', limit: MAX_BYTES }),
   route((r, req) => r.notifyFile({ headers: req.headers, query: req.query, body: req.body })));
-app.post('/files-check', route((r, req) => r.filesCheck({ headers: req.headers })));
+app.post('/files-check', route((r, req) => r.filesCheck({ headers: req.headers, body: req.body })));
 // The ONE route that is not JSON: Deluge uploads an attachment's bytes here.
 // express.json() above leaves a non-JSON content type alone, so the body is
 // still unread by the time this raw parser sees it. `type: '*/*'` because what
@@ -118,9 +125,13 @@ app.post('/cliq-inbound', (req, res, next) => {
 }, route((r, req) => r.inbound({ headers: req.headers, body: req.body })));
 
 // Called by the bot's welcome_handler the moment someone subscribes.
-app.post('/issue-code', route((r, req) => {
+app.post('/issue-code', route(async (r, req) => {
   requireSecret(req);
-  return r.issuePairCode({ cliqUser: req.body.cliq_user, email: req.body.email });
+  const out = await r.issuePairCode({ cliqUser: req.body.cliq_user, email: req.body.email });
+  // Deliberately NOT awaited: this response is what lets the welcome handler
+  // render its text, so the video has to follow it rather than block it.
+  r.sendWelcomeVideoLater(req.body.cliq_user);
+  return out;
 }));
 
 // Verifies every table round-trips. Secret-gated: it writes rows.

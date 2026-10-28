@@ -112,7 +112,9 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
                        fnName = 'claudeCliqAction', fnOwner = '',
                        askFnName = 'claudeCliqAskForm',
                        askSubmitFnName = 'claudeCliqAskSubmit',
-                       streams = null, streamSecret = '' }) {
+                       streams = null, streamSecret = '',
+                       welcomeVideo = null, fetchImpl = globalThis.fetch,
+                       welcomeVideoDelayMs = 1200 }) {
   const debug = new Set(debugUsers.map((u) => String(u).toLowerCase()));
 
   /**
@@ -182,6 +184,50 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
 
   const storesBody = (user) => debug.has(String(user || '').toLowerCase());
 
+  /**
+   * DM the walkthrough video to someone who has just subscribed.
+   *
+   * Best-effort on purpose. Anything thrown here would reach the welcome
+   * handler as a failed invokeurl, and the subscriber would get no pairing
+   * code at all -- losing the setup instructions to save a video. So every
+   * failure is swallowed and logged, and pairing carries on exactly as it did
+   * before this existed.
+   *
+   * Bytes rather than a link because Cliq renders an uploaded video inline
+   * and a link as a link. The file is pulled from Stratus per subscribe
+   * instead of being bundled into the function: the deployment package stays
+   * small, and the video can be replaced by overwriting one object without a
+   * redeploy.
+   */
+  async function sendWelcomeVideo(cliqUser) {
+    if (!welcomeVideo || !welcomeVideo.key) return false;
+    if (!files || !files.configured) return false;
+    try {
+      const url = await files.signedGet(welcomeVideo.key);
+      if (!url) {
+        console.log('[welcome-video] no such object:', welcomeVideo.key);
+        return false;
+      }
+      const res = await fetchImpl(url);
+      if (!res.ok) {
+        console.log('[welcome-video] fetch failed:', res.status);
+        return false;
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      await cliq.dmFile(cliqUser, {
+        filename: welcomeVideo.filename || 'walkthrough.mp4',
+        bytes,
+        contentType: welcomeVideo.contentType || 'video/mp4',
+        caption: welcomeVideo.caption || '',
+      });
+      console.log('[welcome-video] sent', bytes.length, 'bytes');
+      return true;
+    } catch (err) {
+      console.log('[welcome-video] not sent:', (err && err.message) || err);
+      return false;
+    }
+  }
+
   return {
     /** Issue a pairing code. Called by the bot's welcome handler. */
     async issuePairCode({ cliqUser, email }) {
@@ -193,6 +239,31 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         expires: now() + PAIR_CODE_TTL_MS,
       });
       return { code, expires_in: PAIR_CODE_TTL_MS / 1000 };
+    },
+
+    /**
+     * Send the walkthrough AFTER the welcome text, not before.
+     *
+     * The text is the Deluge handler's return value, so it only goes out once
+     * /issue-code has answered. Sending inside that request therefore put the
+     * video first and made the subscriber wait ~13s for any message at all --
+     * the upload is 2.6MB and blocks the response the whole time.
+     *
+     * So this is deliberately NOT awaited by the route: the response flushes,
+     * the handler renders its text, and the video follows a couple of seconds
+     * later. Advanced I/O runs a persistent Express container (it is what
+     * makes /await's long polling possible), so work outstanding after a
+     * response still runs.
+     *
+     * Returns the promise purely so tests can await it; callers ignore it. It
+     * never rejects -- sendWelcomeVideo swallows everything.
+     */
+    sendWelcomeVideoLater(cliqUser) {
+      if (!cliqUser) return Promise.resolve(false);
+      const p = new Promise((done) => setTimeout(done, welcomeVideoDelayMs))
+        .then(() => sendWelcomeVideo(cliqUser));
+      p.catch(() => {});
+      return p;
     },
 
     /** POST /pair -- exchange a one-time code for a device token. */
@@ -634,13 +705,25 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
     },
 
     /** POST /files-check -- does the bucket exist? Saves a console trip. */
-    async filesCheck({ headers }) {
+    async filesCheck({ headers, body = {} }) {
       const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
       if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
         throw new HttpError(403, 'bad secret');
       }
       if (!files || !files.configured) return { configured: false };
-      return { configured: true, bucket: files.bucketName, ...(await files.check()) };
+      const out = { configured: true, bucket: files.bucketName, ...(await files.check()) };
+      // What the relay believes it should send, and whether that object is
+      // actually there. Both, because "no video arrived" has two causes that
+      // look identical from Cliq: an unset key and a key that matches nothing.
+      out.welcome_video = welcomeVideo
+        ? { key: welcomeVideo.key, caption_len: (welcomeVideo.caption || '').length }
+        : null;
+      const probe = String(body.key || (welcomeVideo && welcomeVideo.key) || '');
+      if (probe && files.head) {
+        try { out.probe = await files.head(probe); }
+        catch (err) { out.probe = { key: probe, error: (err && err.message) || 'failed' }; }
+      }
+      return out;
     },
 
     async streamTicket({ headers }) {
