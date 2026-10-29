@@ -53,6 +53,16 @@ def relay_base() -> str:
     """
     rc = json.loads(RCFILE.read_text())
     domain = rc["projects"][0]["domain"]["name"]
+    # Catalyst's two ENVIRONMENTS differ only by a label in the host:
+    #     dev   <project>-<org>.development.catalystserverless.<tld>
+    #     prod  <project>-<org>.catalystserverless.<tld>
+    # Which one this render is for comes from the env file, NOT from whatever
+    # .catalystrc records. The rc names the environment the CLI is bound to,
+    # and that moves whenever anyone deploys -- the same trap the url/secret
+    # split already set once. RELAY_ENV sits beside the secret, so the two
+    # cannot describe different environments.
+    if read_env().get("RELAY_ENV", "development").strip() == "production":
+        domain = domain[: -len(".development")] if domain.endswith(".development") else domain
     # The CLI records e.g. <project>-<org id>.development. The
     # data-centre suffix does NOT follow from the domain -- both branches of
     # the ternary that used to live here returned "in", so a project outside

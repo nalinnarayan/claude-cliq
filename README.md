@@ -179,6 +179,7 @@ DEBUG_USERS            your own Cliq user id, comma separated
 STRATUS_BUCKET         bucket for forwarded images (see below); may be empty
 WELCOME_VIDEO_KEY      object key of the walkthrough DM'd on subscribe; may be empty
 WELCOME_VIDEO_CAPTION  the line that goes with it
+RELAY_ENV              development | production — which host render.py bakes in
 ```
 
 `deploy.sh` refuses to deploy an env file that is missing any variable the code
@@ -320,6 +321,29 @@ exists. The CLI holds one session at a time, in
 `~/Library/Preferences/zcatalyst-cli-nodejs/zcatalyst-cli-v1.json`; swapping
 that file switches accounts instantly, where `catalyst logout` does not
 actually log you out. Keep one copy per account.
+
+### Development and Production
+
+Catalyst gives each project two environments, and they differ in the relay host
+by one label:
+
+```
+development  <project>-<org>.development.catalystserverless.<tld>
+production   <project>-<org>.catalystserverless.<tld>
+```
+
+`RELAY_ENV` in the env file decides which one `render.py` bakes into the
+handlers. It is read from there rather than from `.catalystrc` on purpose: the
+rc names whichever environment the CLI is currently bound to, which moves every
+time anyone deploys, and a URL that disagrees with the secret beside it fails as
+"bad secret" with nothing else to go on.
+
+**`deploy.sh` always writes to Development**, whichever env file it is given.
+That is not a bug and cannot be worked around: `catalyst deploy` has no
+production target, and the CLI has no promote command. Code reaches Production
+by promotion in the console, so a Production release is two steps — deploy, then
+promote. Promotion carries code and Data Store *schema*; it does not carry Data
+Store rows, Stratus objects, or (assume) the Data Streams channel.
 
 Rendering the Deluge handlers follows the same rule:
 
