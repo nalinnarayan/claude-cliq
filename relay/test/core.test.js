@@ -79,6 +79,12 @@ test('notify sends to the token owner, never to a body-supplied address', async 
     body: { text: 'hello', email: 'mallory@z.com', cliq_user: 'u2', to: 'bob@z.com' },
   });
   assert.strictEqual(h.sent.length, 1);
+  // What this pins down is that the RECIPIENT comes from the paired device,
+  // never from the request body -- a stolen token cannot redirect a
+  // notification. It says nothing about where Cliq then delivers it: the
+  // stand-in dm() records whatever first argument it is given, and the live
+  // API ignores that argument entirely, delivering to the zapikey's owner.
+  // No unit test can reach that; only a probe against Cliq showed it.
   assert.strictEqual(h.sent[0].email, 'alice@z.com');
 });
 

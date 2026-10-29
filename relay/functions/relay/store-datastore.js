@@ -68,6 +68,25 @@ function createStore(app) {
       if (row) await ds.table('Devices').deleteRow(row.ROWID);
     },
 
+    /**
+     * Every device's IDENTITY, for diagnosing misrouted notifications.
+     *
+     * Deliberately selects no token_hash: the question this answers is "which
+     * Cliq account is this laptop bound to", and a token hash would make the
+     * route worth attacking. Read-only, and the caller gates it on the
+     * inbound secret.
+     */
+    async listDevices() {
+      return query(`SELECT ROWID, cliq_user, email, name, created
+                    FROM Devices ORDER BY created LIMIT 50`, 'Devices');
+    },
+
+    /** Outstanding pairing codes, identity only -- never the code itself. */
+    async listPairCodes() {
+      return query(`SELECT ROWID, cliq_user, email, expires
+                    FROM PairCodes ORDER BY expires LIMIT 50`, 'PairCodes');
+    },
+
     // -- pending replies (the hot path) ----------------------------------
     async putPending(m) {
       const t = ds.table('Pending');

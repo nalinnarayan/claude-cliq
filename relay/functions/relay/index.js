@@ -95,6 +95,8 @@ app.post('/notify-file',
   express.raw({ type: '*/*', limit: MAX_BYTES }),
   route((r, req) => r.notifyFile({ headers: req.headers, query: req.query, body: req.body })));
 app.post('/files-check', route((r, req) => r.filesCheck({ headers: req.headers, body: req.body })));
+// Identities of paired devices, for diagnosing a misrouted notification.
+app.post('/devices-check', route((r, req) => r.devicesCheck({ headers: req.headers })));
 // The ONE route that is not JSON: Deluge uploads an attachment's bytes here.
 // express.json() above leaves a non-JSON content type alone, so the body is
 // still unread by the time this raw parser sees it. `type: '*/*'` because what

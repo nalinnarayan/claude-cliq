@@ -350,6 +350,15 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         const tail = last && dropped
           ? `\n\n_(${dropped} more characters did not fit — the rest is at the terminal.)_`
           : '';
+        // This first argument reaches Cliq as `user_ids`, and Cliq IGNORES
+        // it. Measured against the live API: posting as the bot with
+        // `user_ids` set to a colleague's zuid, to his email address, and to
+        // a bogus id all returned 200 and all three were delivered to the
+        // zapikey OWNER's DM, which the response echoed back as the actual
+        // recipient. A webhook token can only DM the account that owns it.
+        // So the value here changes nothing today -- addressing is not the
+        // reason a teammate gets no notifications; the token is. Fixing that
+        // needs per-user authorization, not a different identifier.
         await cliq.dm(device.email, marker + pieces[i] + tail + (last ? hintBlock : ''),
                       last ? extras : {});
       }
@@ -724,6 +733,41 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         catch (err) { out.probe = { key: probe, error: (err && err.message) || 'failed' }; }
       }
       return out;
+    },
+
+    /**
+     * Which Cliq account is each paired laptop bound to?
+     *
+     * Added to diagnose a notification that reached the wrong person. It
+     * answered that question by ruling its own hypothesis out: every device
+     * was bound to the right account all along. The misdelivery is upstream
+     * of this -- the bot's webhook token can only DM its owner, whatever
+     * recipient is asked for. Still worth keeping, because it is how you
+     * tell a pairing problem from that one.
+     *
+     * Returns identities only -- no token hashes, no pairing codes, no
+     * message bodies. Secret-gated, like /files-check and /selftest.
+     */
+    async devicesCheck({ headers }) {
+      const given = headers['x-relay-secret'] || headers['X-Relay-Secret'];
+      if (!inboundSecret || !timingSafeEqual(given, inboundSecret)) {
+        throw new HttpError(403, 'bad secret');
+      }
+      const devices = (await store.listDevices()) || [];
+      const codes = (await store.listPairCodes()) || [];
+      return {
+        devices: devices.map((d) => ({
+          cliq_user: d.cliq_user, email: d.email, name: d.name,
+          created: d.created, created_iso: new Date(Number(d.created) || 0).toISOString(),
+          // What each path ASKS for. Cliq delivers both to the token's
+          // owner regardless, so these are the request, not the outcome.
+          routes_notify_to: d.email, routes_files_to: d.cliq_user,
+        })),
+        pair_codes_outstanding: codes.map((c) => ({
+          cliq_user: c.cliq_user, email: c.email,
+          expires_iso: new Date(Number(c.expires) || 0).toISOString(),
+        })),
+      };
     },
 
     async streamTicket({ headers }) {
