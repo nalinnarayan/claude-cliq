@@ -30,7 +30,10 @@ function memStore() {
 function harness(opts = {}) {
   const store = memStore();
   const sent = [];
-  const cliq = { async dm(email, text) { sent.push({ email, text }); } };
+  // `to` rather than `email`: the first argument is the recipient's ZUID,
+  // which becomes v2's `userids`. See cliq.test.js for the wire shape --
+  // a stand-in cannot tell a good identifier from a bad one.
+  const cliq = { async dm(to, text) { sent.push({ to, text }); } };
   const relay = createRelay({
     store, cliq, inboundSecret: 'topsecret',
     debugUsers: opts.debugUsers || [], ...opts,
@@ -79,13 +82,12 @@ test('notify sends to the token owner, never to a body-supplied address', async 
     body: { text: 'hello', email: 'mallory@z.com', cliq_user: 'u2', to: 'bob@z.com' },
   });
   assert.strictEqual(h.sent.length, 1);
-  // What this pins down is that the RECIPIENT comes from the paired device,
-  // never from the request body -- a stolen token cannot redirect a
-  // notification. It says nothing about where Cliq then delivers it: the
-  // stand-in dm() records whatever first argument it is given, and the live
-  // API ignores that argument entirely, delivering to the zapikey's owner.
-  // No unit test can reach that; only a probe against Cliq showed it.
-  assert.strictEqual(h.sent[0].email, 'alice@z.com');
+  // Two things at once. The RECIPIENT comes from the paired device, never
+  // from the request body -- a stolen token cannot redirect a notification.
+  // And it is the account's ZUID, not its address: on v2 that argument is
+  // what Cliq actually delivers by, so a wrong one here is a real
+  // misdelivery rather than a cosmetic slip.
+  assert.strictEqual(h.sent[0].to, 'u1');
 });
 
 test('a device only ever reads its own owner\'s replies', async () => {

@@ -15,7 +15,7 @@
  *   ~strike~     strikethrough
  *   `code`       code
  *   ## Heading   heading
- *   - item       stays a literal hyphen, which reads fine anyway
+ *   - item       no list syntax exists; rewritten to a • bullet
  *   [t](url)     link
  *
  * Claude writes CommonMark, so the doubled markers have to be halved on the
@@ -132,6 +132,12 @@ function toCliqMarkdown(markdown) {
     .split(CODE)
     // split() on a capturing regex puts the code parts at odd indices.
     .map((part, i) => (i % 2 ? part : part
+      // Cliq has no typed list syntax at all -- its composer makes lists from
+      // a toolbar icon, so a markdown bullet arrives as a literal hyphen.
+      // A real bullet character reads as a list and costs nothing. Indentation
+      // is preserved so nested levels still line up, and the required space
+      // after the marker is what keeps `---` and `*bold*` out of it.
+      .replace(/^([ \t]*)[-*+] (?=\S)/gm, '$1\u2022 ')
       .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '*$1*')
       // CommonMark means bold by __this__; Cliq renders it as an underline,
       // so it becomes an asterisk pair rather than an underscore one.

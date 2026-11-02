@@ -78,12 +78,13 @@ test('several tables each become their own slide, in order', () => {
 });
 
 test('prose with no table keeps its shape, dialect aside', () => {
-  // Not byte-identical any more: emphasis is converted to Cliq's dialect.
-  // What must survive is the structure -- no slides, nothing reflowed.
+  // Not byte-identical any more: emphasis is converted to Cliq's dialect and
+  // the bullet marker with it. What must survive is the structure -- no
+  // slides, nothing reflowed, the blank line kept.
   const src = 'Just **bold** and `code`.\n\n- a bullet';
   const { text, slides } = splitTables(src);
   assert.strictEqual(slides.length, 0);
-  assert.strictEqual(text, 'Just *bold* and `code`.\n\n- a bullet');
+  assert.strictEqual(text, 'Just *bold* and `code`.\n\n\u2022 a bullet');
 });
 
 test('the title line is not left stranded in the prose', () => {
@@ -134,6 +135,39 @@ test('a delimiter run that hugs nothing is not emphasis', () => {
   // Without CommonMark's hug rule these swallow the rest of the message.
   assert.strictEqual(toCliqMarkdown('a ** b ** c'), 'a ** b ** c');
   assert.strictEqual(toCliqMarkdown('2 ** 8 = 256'), '2 ** 8 = 256');
+});
+
+test('markdown bullets become bullet characters', () => {
+  // Cliq has no typed list syntax, so a hyphen arrives as a hyphen. All three
+  // markdown markers mean the same list.
+  assert.strictEqual(toCliqMarkdown('- one\n* two\n+ three'),
+                     '\u2022 one\n\u2022 two\n\u2022 three');
+});
+
+test('bullet indentation is preserved for nested lists', () => {
+  assert.strictEqual(toCliqMarkdown('- top\n  - nested\n    - deeper'),
+                     '\u2022 top\n  \u2022 nested\n    \u2022 deeper');
+});
+
+test('numbered lists are left exactly as they are', () => {
+  // Load-bearing: ask.py and plan.py emit `{i}. {label}` and askform.js parses
+  // it back to rebuild the form. Renumbering or restyling breaks answering.
+  assert.strictEqual(toCliqMarkdown('1. first\n2. second'), '1. first\n2. second');
+});
+
+test('what only looks like a bullet is not one', () => {
+  // The space after the marker is the whole guard. A horizontal rule, a table
+  // divider and a line opening with emphasis all lack it.
+  assert.strictEqual(toCliqMarkdown('---'), '---');
+  assert.strictEqual(toCliqMarkdown('|---|---|'), '|---|---|');
+  assert.strictEqual(toCliqMarkdown('**bold** opens the line'), '*bold* opens the line');
+  assert.strictEqual(toCliqMarkdown('- '), '- ', 'a marker with no content');
+  assert.strictEqual(toCliqMarkdown('5 - 3 = 2'), '5 - 3 = 2', 'mid-line hyphen');
+});
+
+test('a bullet inside code is still code', () => {
+  assert.strictEqual(toCliqMarkdown('```\n- not a list\n```'), '```\n- not a list\n```');
+  assert.strictEqual(toCliqMarkdown('a `- flag` span'), 'a `- flag` span');
 });
 
 test('splitTables converts the dialect in prose and in cells', () => {

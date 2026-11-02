@@ -319,8 +319,9 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
       // risk of fifty people active at once. See docs/FINDINGS.md.
       const hint = String(body.hint || '').slice(0, 300);
 
-      // v3 renders Markdown in `text` but not tables, so lift those out into
-      // native table slides and send the prose as-is.
+      // Cliq renders its own dialect in `text`, not CommonMark, and format.js
+      // converts to it -- but a table is not expressible there at all, so
+      // tables are lifted out into native slides and the prose goes as-is.
       const { text: prose, slides } = splitTables(text);
 
       // The hint is appended to the LAST part, not to the text before
@@ -350,16 +351,12 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
         const tail = last && dropped
           ? `\n\n_(${dropped} more characters did not fit — the rest is at the terminal.)_`
           : '';
-        // This first argument reaches Cliq as `user_ids`, and Cliq IGNORES
-        // it. Measured against the live API: posting as the bot with
-        // `user_ids` set to a colleague's zuid, to his email address, and to
-        // a bogus id all returned 200 and all three were delivered to the
-        // zapikey OWNER's DM, which the response echoed back as the actual
-        // recipient. A webhook token can only DM the account that owns it.
-        // So the value here changes nothing today -- addressing is not the
-        // reason a teammate gets no notifications; the token is. Fixing that
-        // needs per-user authorization, not a different identifier.
-        await cliq.dm(device.email, marker + pieces[i] + tail + (last ? hintBlock : ''),
+        // The ZUID. This argument is load-bearing: it becomes v2's `userids`
+        // body field, which is the only recipient Cliq honours. It used to be
+        // `device.email` against v3, where the recipient was discarded
+        // entirely and every teammate's notifications landed in the owner's
+        // DM. See cliq.js's header for the measurement.
+        await cliq.dm(device.cliq_user, marker + pieces[i] + tail + (last ? hintBlock : ''),
                       last ? extras : {});
       }
 
@@ -379,9 +376,10 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
      * follow as an ordinary notify(), because the file endpoint refuses
      * `buttons` (measured) -- so this call deliberately carries no decision.
      *
-     * The recipient is the device's own account, as everywhere else. Note it
-     * is the ZUID here, not the email dm() uses: the v2 file endpoint takes
-     * `user_id`.
+     * The recipient is the device's own account, as everywhere else, and the
+     * ZUID -- as dm() now is too. The spelling still differs between the two
+     * endpoints, though: `user_id` in this one's QUERY string, `userids` in
+     * the message endpoint's BODY.
      */
     async notifyFile({ headers, query, body }) {
       const device = await requireDevice(store, headers);

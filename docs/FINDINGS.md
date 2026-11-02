@@ -62,7 +62,9 @@ Needs the real bot to answer: **can the bot DM a user who has not subscribed?**
 Cliq's v2 docs describe `userids` as targeting *subscribers*, and v3 defines
 `bot_unauthorized_message_access`. Users subscribe as part of onboarding, so
 this is probably moot — but pairing would break if a code were ever sent to a
-non-subscriber.
+non-subscriber. The *subscriber* half is now measured: `userids` on v2 reaches
+a subscribed colleague who is not the token's owner. A non-subscriber was never
+tried.
 
 ## `stop_hook_active` must not suppress the notification
 
@@ -158,31 +160,62 @@ Fixed by letting the tool call cancel its own waiter:
 - permissions get their own shorter window (`permission_wait_seconds`, 300s),
   since they are answered in seconds when answered at all
 
-## v3 renders Markdown; v2 does not
+## v3 does not deliver to the user you ask for
 
-Not a setting — a difference between endpoints, found by probing the live API.
-The published spec documents `styles: {markdown: true}`, but the live v3 bot
-endpoint **rejects `styles` outright** as an unknown key. It renders bold,
-italic, code, fences, lists, headings and links in `text` anyway; v2 shows the
-same text raw, which is why every message looked like stray asterisks.
+**This section used to say the opposite of most of what follows.** It is kept
+as a correction rather than rewritten away, because the wrong version of it
+was confidently measured and cost a month of silent misdelivery.
 
-Other v3 differences, each learned from a 400 rather than the docs:
+`user_ids` on v3 is a QUERY parameter, which the published docs confirm — and
+under a zapikey the endpoint discards it. It answers 200 and posts to the
+token owner's DM whoever you name. Measured three ways: a colleague's zuid,
+his email address, and the bogus id `999999999999` all arrived in the owner's
+DM. v2 takes `userids` in the BODY and honours it, confirmed by two sends
+landing in two different `chat_id`s.
+
+The trap: `user_ids` in the v3 **body** is a hard 400 (`extra_key_found`),
+which reads as proof that the query string is where it belongs. It is — and it
+is then ignored. Worse, the response field named `user_ids` reports who was
+actually written to, not who was asked for, so it looks like a confirmation.
+That echo is what made the first two diagnoses wrong.
+
+It was invisible for as long as the only paired user was the token's owner,
+for whom "deliver to the owner" and "deliver to the recipient" are the same
+outcome. No unit test could reach it either: the stand-in `dm()` records
+whatever first argument it is handed, and only the live API distinguishes a
+good identifier from one it is about to throw away.
 
 | | v2 | v3 |
 | --- | --- | --- |
-| `user_ids` | body field (`userids`) | **query parameter** |
-| `sync_message` | body field, returns `message_id` | **not accepted** |
-| `styles` | — | **rejected**, despite the spec |
-| `slides` / `buttons` / `card` | — | accepted |
-| Markdown in `text` | raw | rendered |
+| recipient | **`userids`, body field, honoured** | `user_ids`, query parameter, **discarded** |
+| `sync_message` | body field, returns `message_id` | not accepted |
+| `styles` | — | rejected, despite the spec |
+| `slides` / `buttons` | accepted | accepted |
+| unknown body keys | ignored | hard 400 |
 
-Unknown body keys are a hard 400 on v3, so the client sends only an allow-list.
-Losing `sync_message` costs the sent `message_id`; the buttons design does not
-need it, since binding comes from `arguments.req`.
+**Both versions render Cliq's own dialect, not CommonMark.** The earlier claim
+that "v2 shows the same text raw" was measured by sending *markdown* to it,
+which renders badly on both; `_italic_` and `` `code` `` render on v2 exactly
+as they do on v3. The dialect table further down this file was always right,
+and `format.js` has been converting to it all along — so moving to v2 cost
+nothing on formatting. Buttons cost nothing either: the claim that they were
+v3-only was wrong, and one sent through v2 rendered and was tappable.
 
-**Tables are the exception.** v3 renders every other Markdown construct in
-`text`, but a Markdown table still arrives as raw pipes. They have to be lifted
-out and sent as native table slides, which is what `format.js` does.
+v2's `styles` was never probed and is not needed.
+
+Losing v3 gains `sync_message`, which returns a `message_id` and `chat_id` per
+recipient. Nothing consumes them yet: editing a sent message needs a
+chat-scoped call, and `/api/v3/chats/{id}/messages` answers **401** to a
+zapikey, which is not an OAuth credential. OAuth is not available either —
+`client_credentials` and `authorization_code` both return `oauth_app_blocked`
+for every valid scope, including unrelated ones, so the OAuth client is
+blocked org-wide and only an admin can lift it.
+
+**Tables are the exception, on both versions.** Cliq's dialect has no table
+syntax, so a markdown table arrives as raw pipes. They are lifted out and sent
+as native table slides, which is what `format.js` does. Lists have no typed
+syntax either; `format.js` rewrites the marker to a `•` so they at least read
+as a list.
 
 ## A reply sent while Claude is working had nowhere to go
 

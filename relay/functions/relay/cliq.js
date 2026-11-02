@@ -3,26 +3,46 @@
  * Outbound to Zoho Cliq.
  *
  * One webhook token for the whole deployment, owned by one account -- no
- * per-user OAuth anywhere. `/messages` posts as the bot into the target
+ * per-user OAuth anywhere. `/message` posts as the bot into the target
  * user's DM. (`/incoming` is a different thing entirely: it feeds params to
  * a Deluge handler and posts nothing by itself.)
  *
- * v3, not v2, for two reasons established by testing against the live API:
- * v3 renders Markdown in `text` while v2 shows it raw, and only v3 accepts
- * `slides` (native tables) and `buttons`.
+ * v2, not v3, for one reason that outranks every other difference: v3 does
+ * not deliver to the user you ask for. It takes `user_ids` as a QUERY
+ * parameter, and under a zapikey it discards it -- answering 200 and posting
+ * to the token's owner whoever you name. Measured three ways against the live
+ * endpoint: a colleague's zuid, his email address, and the bogus id
+ * 999999999999 all arrived in the owner's DM. v2 takes `userids` in the BODY
+ * and honours it, confirmed by two sends landing in two different chat_ids.
  *
- * v3 differs from v2 in ways the docs do not lead with, each confirmed by a
- * 400 from the live endpoint:
- *   - `user_ids` is a QUERY parameter, not a body field
- *   - `sync_message` is not accepted at all, so no message_id comes back
- *   - `styles` is rejected outright, despite being in the published spec
- *   - unknown body keys are a hard error, so send only what is accepted
+ * The trap that produced the v3 version of this file: `user_ids` in the v3
+ * BODY is a hard 400 (`extra_key_found`), which reads as proof that it must
+ * belong in the query string. It does go there, and it is then ignored. The
+ * response field named `user_ids` reports who was actually written to, not
+ * who was asked for, so it looks like a confirmation and is not.
+ *
+ * What v2 costs, measured rather than assumed:
+ *   - nothing on formatting. Both versions render CLIQ's dialect, not
+ *     CommonMark, and format.js already emits it -- see its header.
+ *   - nothing on `buttons`. The claim that they were v3-only was wrong; a
+ *     button sent through v2 rendered and was tappable.
+ *   - unknown body keys are IGNORED here, not rejected. v3's hard 400 was a
+ *     crude form of schema checking, and it is gone, so cliq.test.js is now
+ *     the only thing that catches a malformed send.
+ *
+ * What v2 adds, unused for now: `sync_message` returns a message_id and
+ * chat_id per recipient, which v3 refuses. Editing a sent message needs a
+ * chat-scoped call a zapikey cannot make (401), so the ids have no consumer
+ * yet.
  */
 
 const { buildMultipart } = require('./multipart');
 
-// v3 JSON only. The file endpoint is v2 multipart and ignores this entirely.
-const ALLOWED_KEYS = ['slides', 'buttons', 'card', 'bot'];
+// The JSON message endpoint only. The file endpoint is multipart and ignores
+// this entirely. `card` and `bot` were carried here as "the set v3 accepts";
+// no caller has ever populated either, so they are gone -- the allow-list
+// exists to keep junk off the wire, not to catalogue the API.
+const ALLOWED_KEYS = ['slides', 'buttons'];
 
 function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch }) {
   const base = (baseUrl || 'https://cliq.zoho.com').replace(/\/$/, '');
@@ -30,10 +50,17 @@ function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch })
   return {
     /**
      * DM a user as the bot.
-     * `extras` may carry slides / buttons / card; anything else is dropped,
-     * because v3 rejects the whole request on an unknown key.
+     *
+     * `zuid` is the recipient's Cliq user id. v2 documents the field as
+     * accepting emails too, but the id is what was measured working and it is
+     * the one identifier always on a device record -- Cliq grants a bot the
+     * subscriber's email only by a consent that lapses.
+     *
+     * `extras` may carry slides / buttons; anything else is dropped. v2 would
+     * ignore an unknown key rather than reject it, so this filter is now a
+     * discipline rather than a guard against a 400.
      */
-    async dm(emailOrZuid, text, extras = {}) {
+    async dm(zuid, text, extras = {}) {
       // Checked here rather than at construction: the client is built for
       // every request, so throwing early would take down pairing and
       // long-polling too, which need no Cliq credential at all.
@@ -44,11 +71,14 @@ function createCliq({ baseUrl, botName, zapikey, fetchImpl = globalThis.fetch })
         throw err;
       }
 
-      const url = `${base}/api/v3/bots/${encodeURIComponent(botName)}/messages`
-                + `?zapikey=${encodeURIComponent(zapikey)}`
-                + `&user_ids=${encodeURIComponent(emailOrZuid)}`;
+      const url = `${base}/api/v2/bots/${encodeURIComponent(botName)}/message`
+                + `?zapikey=${encodeURIComponent(zapikey)}`;
 
-      const body = { text };
+      // In the BODY, and spelled without the underscore. Both of those matter:
+      // `user_ids` is v3's name and v2 does not recognise it, and a recipient
+      // in the query string is silently dropped. Either mistake delivers to
+      // the token's owner with a 200 and no other signal.
+      const body = { text, userids: String(zuid) };
       for (const k of ALLOWED_KEYS) {
         if (extras[k] !== undefined && extras[k] !== null) body[k] = extras[k];
       }

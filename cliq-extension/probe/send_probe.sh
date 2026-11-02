@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PROBE -- throwaway. Posts the gate-test message straight to Cliq v3,
+# PROBE -- throwaway. Posts the gate-test message straight to Cliq,
 # bypassing the relay so no deploy is needed and core.js stays untouched.
 #
 #   bash cliq-extension/probe/send_probe.sh form    # the form button + 3KB argument
@@ -10,7 +10,10 @@ cd "$(dirname "$0")/../.."
 set -a; . "relay/.env.deploy.${CLIQ_ENV:-test}"; set +a   # secrets stay in the environment
 BASE="${CLIQ_BASE_URL:-https://cliq.zoho.com}"
 WHO="${PROBE_USER:?set PROBE_USER to the Cliq account to send the probe to}"
-URL="$BASE/api/v3/bots/$CLIQ_BOT_NAME/messages?zapikey=$CLIQ_ZAPIKEY&user_ids=$WHO"
+# v2, and the recipient goes in the BODY below -- on v3 `user_ids` rides in
+# the query string, is discarded, and the probe lands in the token owner's
+# DM with a 200. That is what this script used to do.
+URL="$BASE/api/v2/bots/$CLIQ_BOT_NAME/message?zapikey=$CLIQ_ZAPIKEY"
 
 case "${1:-form}" in
 form)
@@ -52,6 +55,12 @@ PY
   ;;
 *) echo "usage: send_probe.sh [form|buttons]" >&2; exit 2 ;;
 esac
+
+# The recipient is merged in here rather than built into each branch, so the
+# two message bodies above stay the shape core.js would send.
+BODY=$(BODY="$BODY" WHO="$WHO" python3 -c 'import json, os
+b = json.loads(os.environ["BODY"]); b["userids"] = os.environ["WHO"]
+print(json.dumps(b))')
 
 printf 'posting %s probe to %s as bot %s\n' "${1:-form}" "$WHO" "$CLIQ_BOT_NAME"
 curl -sS -X POST "$URL" -H 'Content-Type: application/json' -d "$BODY" \
