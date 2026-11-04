@@ -44,6 +44,10 @@ newCodeButton = Map();
 // TWENTY characters is the measured cap -- beyond it Cliq rejects the whole
 // message with input_maxlength_reached. This is eighteen.
 newCodeButton.put("label", "Send me a new code");
+// Documented as REQUIRED on a button: "+" renders green, "-" red. The relay's
+// API-sent buttons omit it and render anyway, so it is only enforced on this
+// path -- which is why the first attempt here produced no button at all.
+newCodeButton.put("type", "+");
 newCodeButton.put("action", newCodeAction);
 
 buttons = List();

@@ -217,6 +217,32 @@ as native table slides, which is what `format.js` does. Lists have no typed
 syntax either; `format.js` rewrites the marker to a `•` so they at least read
 as a list.
 
+## A button in a handler's RETURN needs `type`; one sent by the API does not
+
+The same button object renders from `cliq.dm()` and vanishes from a Deluge
+handler's return value, silently — no error, no warning, the message simply
+arrives as text.
+
+The difference is the `type` key, `"+"` or `"-"`. The published button schema
+marks it **required**. The API tolerates its absence: `buildButtons`
+(`core.js:88`) has never set it and every permission button has always
+rendered. A welcome handler's returned `buttons` list enforces it.
+
+Measured: a *Send me a new code* button on the welcome message showed nothing
+until `type` was added, then rendered and invoked correctly.
+
+Worth generalising. The API and the handler-return path accept overlapping but
+not identical message objects, and the handler path fails by dropping rather
+than by erroring — the same failure mode as v3's discarded `user_ids`. When
+something sent through a handler does not appear, compare it against the
+published schema rather than against what the relay sends, because the relay
+is the more permissive of the two.
+
+Also required there, and easy to miss: `action.data.owner`, the function
+creator's email. It is optional only for the creator, so a button without it
+works for whoever built the bot and for nobody else — which is invisible until
+a colleague taps it.
+
 ## A reply sent while Claude is working had nowhere to go
 
 Waiters are armed only while a hook is blocking — that is, while Claude is
