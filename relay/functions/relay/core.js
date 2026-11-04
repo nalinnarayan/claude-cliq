@@ -229,9 +229,24 @@ function createRelay({ store, cliq, inboundSecret, debugUsers = [], files = null
   }
 
   return {
-    /** Issue a pairing code. Called by the bot's welcome handler. */
+    /**
+     * Issue a pairing code, replacing any the account already holds.
+     *
+     * One live code per person, because several are worse than confusing:
+     * /pair is keyed on the code alone, so each outstanding one independently
+     * mints a device, and someone scrolling back to an older message pairs
+     * against whichever they find. Measured: a colleague who never managed to
+     * pair at all was holding three.
+     *
+     * It is also the only thing that ever removes a row. Nothing sweeps
+     * PairCodes -- redeeming at /pair is the sole other deletion -- so without
+     * this an unredeemed code lives for ever.
+     *
+     * Called on subscribe, and again whenever someone asks for a fresh one.
+     */
     async issuePairCode({ cliqUser, email }) {
       if (!cliqUser || !email) throw new HttpError(400, 'cliqUser and email required');
+      await store.deletePairCodesFor(String(cliqUser));
       const code = newPairCode();
       await store.putPairCode(code, {
         cliq_user: String(cliqUser),

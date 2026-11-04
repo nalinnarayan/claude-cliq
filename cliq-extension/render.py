@@ -159,6 +159,15 @@ def main() -> int:
     fn_name = env.get("CLIQ_FUNCTION_NAME", "claudeCliqAction")
     ask_fn = env.get("CLIQ_ASK_FUNCTION_NAME", "claudeCliqAskForm")
     ask_submit_fn = env.get("CLIQ_ASK_SUBMIT_FUNCTION_NAME", "claudeCliqAskSubmit")
+    newcode_fn = env.get("CLIQ_NEWCODE_FUNCTION_NAME", "claudeCliqNewCode")
+    # The welcome message's button names its function's OWNER as well as its
+    # name. That is optional only for whoever created the function and
+    # required for everyone else -- which is every colleague who subscribes,
+    # so without it the button works for one account and nobody else.
+    fn_owner = env.get("CLIQ_FUNCTION_OWNER", "")
+    if not fn_owner:
+        print("warning    : CLIQ_FUNCTION_OWNER is empty -- the welcome button "
+              "will work only for the function's creator", file=sys.stderr)
     sources = sorted(f.name for f in HERE.glob("*.dg") if "debug" not in f.name)
     for name in sources:
         text = (HERE / name).read_text()
@@ -167,6 +176,8 @@ def main() -> int:
                     .replace("REPLACE_WITH_FUNCTION_NAME", fn_name)
                     .replace("REPLACE_WITH_ASK_FUNCTION_NAME", ask_fn)
                     .replace("REPLACE_WITH_ASK_SUBMIT_FUNCTION_NAME", ask_submit_fn)
+                    .replace("REPLACE_WITH_NEWCODE_FUNCTION_NAME", newcode_fn)
+                    .replace("REPLACE_WITH_FUNCTION_OWNER", fn_owner)
                     .replace("REPLACE_WITH_REPO", repo))
         # The bot function is written out under the name it must be CREATED
         # with, so there is no way to paste it into the wrong one.
@@ -176,6 +187,8 @@ def main() -> int:
             name = f"{ask_fn}.dg"
         elif name == "claudeCliqAskSubmit.dg":
             name = f"{ask_submit_fn}.dg"
+        elif name == "claudeCliqNewCode.dg":
+            name = f"{newcode_fn}.dg"
         if "REPLACE_WITH_" in text:
             leftover = [l.strip() for l in text.splitlines() if "REPLACE_WITH_" in l]
             print(f"! {name} still has placeholders: {leftover}", file=sys.stderr)

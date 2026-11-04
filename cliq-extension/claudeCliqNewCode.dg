@@ -1,0 +1,67 @@
+// Bot FUNCTION (not a handler) -- the target of the welcome message's
+// "Send me a new code" button.
+//
+// Why it exists: a pairing code lasts ten minutes, and until now the only way
+// to get another was to unsubscribe and resubscribe. Someone who read the
+// welcome message on their phone and reached a terminal an hour later had no
+// route forward. Measured: a colleague collected three dead codes that way
+// and never paired at all.
+//
+// Create this in the bot builder as a function named exactly (Cliq function
+// names allow letters only -- no underscores):
+//     REPLACE_WITH_NEWCODE_FUNCTION_NAME
+//
+// The name is per ENVIRONMENT, not per bot. Cliq functions are account-level,
+// so every bot in the account sees the same list -- a test bot reusing the
+// production function would issue production codes with the production
+// secret. Same reasoning as REPLACE_WITH_FUNCTION_NAME.
+
+payload = Map();
+payload.put("cliq_user", user.get("id"));
+// The relay refuses a code without one, and it is how a tap is attributed.
+// Cliq grants a bot the subscriber's address only by a consent that lapses
+// after 60 days, so this can be null -- the relay answers 400 and the message
+// below says what to do about it.
+payload.put("email", user.get("email"));
+
+headers = Map();
+headers.put("Content-Type", "application/json");
+headers.put("X-Relay-Secret", "REPLACE_WITH_RELAY_INBOUND_SECRET");
+
+// One return at the top level: Deluge does not count a return inside a try,
+// and reports the error against the try line rather than the return.
+response = Map();
+try
+{
+	result = invokeurl
+	[
+		url: "REPLACE_WITH_RELAY_BASE/refresh-code"
+		type: POST
+		parameters: payload.toString()
+		headers: headers
+	];
+
+	// invokeurl does NOT raise on an HTTP error, so the body is the only
+	// signal -- a 400 or 403 arrives here looking like a successful call with
+	// no `code` in it.
+	code = result.get("code");
+
+	if(code == null)
+	{
+		response.put("text", "I couldn't generate a code just now. Unsubscribing and subscribing again will also issue one.");
+	}
+	else
+	{
+		msg = "Here's a fresh pairing code. Inside Claude Code:\n";
+		msg = msg + "```\n/claude-cliq:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n";
+		// Said every time, because the whole reason someone taps this button
+		// is that they did not know the last one had run out.
+		msg = msg + "Good for 10 minutes. This replaces any earlier code — the one in the welcome message no longer works.";
+		response.put("text", msg);
+	}
+}
+catch (e)
+{
+	response.put("text", "Couldn't reach Claude Code: " + e.toString());
+}
+return response;

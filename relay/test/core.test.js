@@ -13,6 +13,9 @@ function memStore() {
     async putPairCode(c, v) { codes.set(c, v); },
     async getPairCode(c) { return codes.get(c) || null; },
     async deletePairCode(c) { codes.delete(c); },
+    async deletePairCodesFor(u) {
+      for (const [c, v] of codes) if (v.cliq_user === u) codes.delete(c);
+    },
     async putDevice(h, v) { devices.set(h, v); },
     async getDevice(h) { return devices.get(h) || null; },
     async deleteDevice(h) { devices.delete(h); },
@@ -54,6 +57,29 @@ test('pairing code is single use', async () => {
   const { code } = await h.relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
   await h.relay.pair({ body: { code } });
   await assert.rejects(() => h.relay.pair({ body: { code } }), /unknown code/);
+});
+
+test('a new code replaces the ones that account already held', async () => {
+  // One live code per person. /pair is keyed on the code alone, so two live
+  // codes mint two devices, and someone scrolling back to an older message
+  // pairs against whichever they find first. Measured: a colleague who never
+  // managed to pair was holding three.
+  const h = harness();
+  const first = await h.relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
+  const second = await h.relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
+  assert.notStrictEqual(first.code, second.code);
+  await assert.rejects(() => h.relay.pair({ body: { code: first.code } }),
+                       /unknown code/, 'the superseded code is gone');
+  const { device_token } = await h.relay.pair({ body: { code: second.code } });
+  assert.ok(device_token, 'the newest code still pairs');
+});
+
+test('issuing a code leaves other accounts alone', async () => {
+  const h = harness();
+  const mine = await h.relay.issuePairCode({ cliqUser: 'u1', email: 'a@z.com' });
+  await h.relay.issuePairCode({ cliqUser: 'u2', email: 'b@z.com' });
+  const { device_token } = await h.relay.pair({ body: { code: mine.code } });
+  assert.ok(device_token, 'u2 subscribing did not burn u1\'s code');
 });
 
 test('expired pairing code is refused', async () => {

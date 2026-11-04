@@ -23,9 +23,36 @@ result = invokeurl
 
 code = result.get("code");
 
+// The escape hatch from a ten-minute code. It rides on BOTH responses below:
+// on the failure path it is a retry, and on the success path it is what
+// someone reaches for an hour later when the code in this very message has
+// run out. Before it existed, their only route was to unsubscribe and
+// subscribe again, which nobody guesses.
+//
+// `owner` is not optional. It may be omitted only for whoever created the
+// function; for everyone else Cliq will not invoke it. Every colleague who
+// subscribes is everyone else.
+newCodeData = Map();
+newCodeData.put("name", "REPLACE_WITH_NEWCODE_FUNCTION_NAME");
+newCodeData.put("owner", "REPLACE_WITH_FUNCTION_OWNER");
+
+newCodeAction = Map();
+newCodeAction.put("type", "invoke.function");
+newCodeAction.put("data", newCodeData);
+
+newCodeButton = Map();
+// TWENTY characters is the measured cap -- beyond it Cliq rejects the whole
+// message with input_maxlength_reached. This is eighteen.
+newCodeButton.put("label", "Send me a new code");
+newCodeButton.put("action", newCodeAction);
+
+buttons = List();
+buttons.add(newCodeButton);
+
 if(code == null)
 {
-	response.put("text", "I couldn't generate a pairing code just now. Try unsubscribing and subscribing again, or ping the maintainer.");
+	response.put("text", "I couldn't generate a pairing code just now. Tap below to try again.");
+	response.put("buttons", buttons);
 	return response;
 }
 
@@ -60,7 +87,8 @@ msg = msg + "```\n/claude-cliq:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n\
 // the video follows rather than precedes, so this line has to promise it.
 msg = msg + "*2. Claude Mac Desktop App*\n\n";
 msg = msg + "See the short video in the next message.\n\n";
-msg = msg + "The code is good for 10 minutes. Once paired, run `/claude-cliq:away on` whenever you step away and I'll ping you here.";
+msg = msg + "The code is good for 10 minutes — if it runs out, tap *Send me a new code* below. Once paired, run `/claude-cliq:away on` whenever you step away and I'll ping you here.";
 
 response.put("text", msg);
+response.put("buttons", buttons);
 return response;

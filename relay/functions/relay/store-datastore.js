@@ -50,6 +50,22 @@ function createStore(app) {
                               'PairCodes');
       if (row) await ds.table('PairCodes').deleteRow(row.ROWID);
     },
+    /**
+     * Every outstanding code for one account.
+     *
+     * Nothing sweeps this table -- a code is removed only when someone redeems
+     * it at /pair -- so an unredeemed one lives for ever. Issuing clears the
+     * previous ones, which keeps it to one live code per person and stops the
+     * table growing without bound; listPairCodes caps at 50 rows and was going
+     * to start truncating.
+     */
+    async deletePairCodesFor(cliqUser) {
+      const rows = await query(
+        `SELECT ROWID FROM PairCodes WHERE cliq_user = ${lit(String(cliqUser))}`,
+        'PairCodes');
+      for (const row of rows) await ds.table('PairCodes').deleteRow(row.ROWID);
+      return rows.length;
+    },
 
     // -- devices ---------------------------------------------------------
     async putDevice(hash, v) {

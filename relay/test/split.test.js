@@ -92,6 +92,9 @@ function harness() {
       async putPairCode(c, v) { codes.set(c, v); },
       async getPairCode(c) { return codes.get(c) || null; },
       async deletePairCode(c) { codes.delete(c); },
+      async deletePairCodesFor(u) {
+        for (const [c, v] of codes) if (v.cliq_user === u) codes.delete(c);
+      },
       async putDevice(h, v) { devices.set(h, { token_hash: h, ...v }); },
       async getDevice(h) { return devices.get(h) || null; },
       async putPending(m) { pending.set(m.id, m); },

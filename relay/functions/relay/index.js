@@ -136,6 +136,15 @@ app.post('/issue-code', route(async (r, req) => {
   return out;
 }));
 
+// Called by the bot's "Send me a new code" button, for someone whose code
+// lapsed before they got to a terminal. Identical to /issue-code except that
+// it sends NO video: the walkthrough belongs to subscribing, and re-sending
+// 2.6MB on every tap is the reason this is a second route rather than a flag.
+app.post('/refresh-code', route(async (r, req) => {
+  requireSecret(req);
+  return r.issuePairCode({ cliqUser: req.body.cliq_user, email: req.body.email });
+}));
+
 // Verifies every table round-trips. Secret-gated: it writes rows.
 app.post('/selftest', async (req, res) => {
   try {
