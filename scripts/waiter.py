@@ -41,6 +41,11 @@ DESKTOP_SESSIONS = (Path.home() / "Library" / "Application Support" / "Claude"
                     / "claude-code-sessions")
 # session id -> that session's desktop file, so only the first lookup searches.
 DESKTOP_INDEX = STATE_DIR / "desktop-sessions.json"
+# A miss is remembered too. A terminal session is never in those files, and
+# the header asks on every message -- so an unremembered miss re-searched
+# every desktop file, every time. Re-checked after this long, in case the
+# session's file is written after its first hook fires.
+DESKTOP_MISS_TTL = 600.0
 # `cliSessionId` is the second field, at byte 59 in every file measured, and
 # the files run to hundreds of KB. Reading only the head while searching makes
 # skipping a file ~100x cheaper than parsing it.
@@ -86,6 +91,17 @@ def desktop_title(session_id: str) -> str:
             title = _desktop_title_in(Path(known), session_id)
             if title is not None:
                 return title
+        misses = index.get("_misses") or {}
+        if time.time() - float(misses.get(session_id, 0)) < DESKTOP_MISS_TTL:
+            return ""
+
+        def save():
+            try:
+                tmp = DESKTOP_INDEX.with_suffix(".tmp")
+                tmp.write_text(json.dumps(index))
+                tmp.replace(DESKTOP_INDEX)
+            except Exception:
+                pass
 
         if not DESKTOP_SESSIONS.is_dir():
             return ""
@@ -104,13 +120,17 @@ def desktop_title(session_id: str) -> str:
             if title is None:
                 continue
             index[session_id] = str(f)
-            try:
-                tmp = DESKTOP_INDEX.with_suffix(".tmp")
-                tmp.write_text(json.dumps(index))
-                tmp.replace(DESKTOP_INDEX)
-            except Exception:
-                pass
+            misses.pop(session_id, None)
+            index["_misses"] = misses
+            save()
             return title
+        # Not a desktop session (or not yet). Remember that, and drop misses
+        # old enough to be re-checked anyway, so the file cannot grow forever.
+        now = time.time()
+        misses = {k: v for k, v in misses.items() if now - float(v) < DESKTOP_MISS_TTL}
+        misses[session_id] = now
+        index["_misses"] = misses
+        save()
     except Exception:
         pass
     return ""

@@ -1171,6 +1171,30 @@ class DesktopTitles(unittest.TestCase):
         self.session("big", "Huge session", pad=400_000)
         self.assertEqual(waiter.desktop_title("big"), "Huge session")
 
+    def test_a_desktop_project_session_is_headed_by_folder_and_name(self):
+        self.session("ccc", "Pair session 4e236b")
+        line = H.context_line("/tmp/zoho-demo-callgen", {"session_id": "ccc"})
+        self.assertEqual(line, "zoho-demo-callgen · Pair session 4e236b")
+
+    def test_a_terminal_session_keeps_its_path(self):
+        self.session("ccc", "Someone else")
+        self.assertEqual(H.context_line("/tmp/not-a-repo", {"session_id": "term"}),
+                         "/tmp/not-a-repo")
+
+    def test_a_miss_is_remembered_then_rechecked(self):
+        # The header asks on every message; a terminal session always misses,
+        # and must not re-search every desktop file each time.
+        self.assertEqual(waiter.desktop_title("late"), "")
+        self.session("late", "Arrived after")
+        self.assertEqual(waiter.desktop_title("late"), "", "the miss is remembered")
+        saved = waiter.DESKTOP_MISS_TTL
+        try:
+            waiter.DESKTOP_MISS_TTL = 0
+            self.assertEqual(waiter.desktop_title("late"), "Arrived after",
+                             "and re-checked once it is old enough")
+        finally:
+            waiter.DESKTOP_MISS_TTL = saved
+
     def test_unknown_missing_and_broken_all_come_back_empty(self):
         (self.root / "acct" / "g1").mkdir(parents=True)
         (self.root / "acct" / "g1" / "local_broken.json").write_text("{not json")

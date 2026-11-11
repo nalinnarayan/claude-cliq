@@ -123,7 +123,19 @@ def context_line(cwd: str, payload: dict | None = None) -> str:
         if len(title) > TITLE_MAX:
             title = title[:TITLE_MAX].rstrip() + "…"
         return f"Desktop · {title}" if title else "Desktop session"
-    bits = [short_cwd(cwd)] if cwd else []
+
+    # A desktop session in a project folder: named as its sidebar shows it,
+    # the folder as the group and then the session, since five sessions
+    # under one folder were otherwise indistinguishable. A terminal session
+    # is never in the desktop app's files, so it keeps its path.
+    title = waiter.desktop_title((payload or {}).get("session_id", "")) if cwd else ""
+    if title:
+        title = " ".join(title.split())
+        if len(title) > TITLE_MAX:
+            title = title[:TITLE_MAX].rstrip() + "…"
+        bits = [Path(cwd).name, title]
+    else:
+        bits = [short_cwd(cwd)] if cwd else []
     branch = git_branch(cwd)
     if branch:
         bits.append(branch)
