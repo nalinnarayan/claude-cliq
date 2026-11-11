@@ -24,15 +24,8 @@ have one, tell them to subscribe to the bot at
 If they have a code but no URL, ask them to paste the bot's whole message:
 there is no default, and pairing cannot be guessed at.
 
-After pairing succeeds, tell them two things in one line each:
-
-- `/claude-cliq:away on` when they step away — Claude then waits for Cliq replies.
-- Questions are answered by typing a plain reply. Permission requests are
-  answered by tapping the buttons, or by typing `yes <id>` / `no <id>` with
-  the five-letter id from the message — the id is what says which request is
-  meant, which is why a bare "yes" is not enough when more than one is open.
-  `all` approves everything in that session for a while. To answer a specific
-  older message, swipe-reply to it.
+After pairing succeeds, tell them in one line: `/claude-cliq:away on` when
+they step away — Claude then waits for Cliq replies.
 
 To check state or disconnect:
 
