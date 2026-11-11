@@ -109,7 +109,8 @@ def context_line(cwd: str) -> str:
 
 def send(relay: Relay, *, kind: str, text: str, request_id: str,
          session_id: str = "", cwd: str = "", expects_reply: bool = False,
-         hint: str = "", answers: list[dict] | None = None) -> bool:
+         hint: str = "", answers: list[dict] | None = None,
+         timeout: int = 20) -> bool:
     if not send_allowed(cfg_cache().local_sends_per_min):
         # Shed rather than queue. A notification that arrives minutes late is
         # worse than none: the thing it was about has already moved on.
@@ -126,11 +127,45 @@ def send(relay: Relay, *, kind: str, text: str, request_id: str,
                      request_id=request_id,
                      session_id=session_id, cwd=cwd,
                      expects_reply=expects_reply,
-                     hint=defuse_cliq_markup(hint), answers=answers)
+                     hint=defuse_cliq_markup(hint), answers=answers,
+                     timeout=timeout)
         return True
     except RelayError as exc:
         log(f"{kind} notify failed: {exc}")
         return False
+
+
+ACK_PREVIEW = 80
+
+
+def acknowledge(relay: Relay, answer: str, *, session_id: str = "",
+                cwd: str = "") -> bool:
+    """Tell the person their reply has reached Claude, the moment it does.
+
+    Without this, a reply that reached the session and one that went nowhere
+    look identical from the phone: nothing comes back until Claude's answer
+    does, which may be minutes. This is sent by the laptop at the instant the
+    reply is handed to Claude -- not by the relay on receipt -- so it is the
+    one signal that actually means "Claude is working on it".
+
+    It quotes what arrived, because what arrived is not always what was sent:
+    a swipe-reply to one's own message delivers only the new text, and the
+    collector joins messages sent close together.
+
+    Called just BEFORE the emit that hands the reply over. Claude Code resumes
+    only when the hook exits, so nothing can usefully happen after it.
+    """
+    import collect                        # lazily, as block_for_reply does
+    preview = collect._plain(answer)
+    if len(preview) > ACK_PREVIEW:
+        preview = preview[:ACK_PREVIEW].rstrip() + "…"
+    # Five seconds, not the usual twenty. The relay is warm -- it served this
+    # very reply a moment ago -- so this only bounds the case where it dies in
+    # between, which must not hold Claude up. A lost ack costs nothing; send()
+    # already swallows the error, and the reply goes through regardless.
+    return send(relay, kind="ack", request_id=new_request_id(),
+                text=f'👀 Got it — working on: "{preview}"',
+                session_id=session_id, cwd=cwd, timeout=5)
 
 
 _CFG: Config | None = None

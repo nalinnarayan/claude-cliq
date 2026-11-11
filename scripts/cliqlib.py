@@ -423,7 +423,8 @@ class Relay:
     # -- outbound --------------------------------------------------------
     def notify(self, *, kind: str, text: str, request_id: str,
                session_id: str = "", cwd: str = "", expects_reply: bool = False,
-               hint: str = "", answers: list[dict] | None = None) -> dict:
+               hint: str = "", answers: list[dict] | None = None,
+               timeout: int = 20) -> dict:
         """Send a message to the paired user's Cliq DM.
 
         Note there is no recipient argument: the relay derives it from the
@@ -439,7 +440,7 @@ class Relay:
             "hint": hint,
             # [{label, value, req?}] -- the relay turns these into buttons.
             "answers": answers or [],
-        }, timeout=20)
+        }, timeout=timeout)
 
     # -- inbound ---------------------------------------------------------
     def stream_ticket(self) -> dict:

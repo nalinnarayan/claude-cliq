@@ -1113,6 +1113,81 @@ class StaleNotice(unittest.TestCase):
         self.assertIn("and 3 more", said, "three shown, the rest counted")
 
 
+class Acknowledge(unittest.TestCase):
+    """The "Claude has it" message, sent the moment a reply is handed over.
+
+    Before it, a reply that reached the session and one that went nowhere
+    looked the same from the phone until Claude's answer arrived.
+    """
+
+    class Relay:
+        def __init__(self, fail=False):
+            self.sent, self.fail = [], fail
+
+        def notify(self, **kw):
+            self.sent.append(kw)
+            if self.fail:
+                raise RelayError("unreachable: relay went away")
+
+    def setUp(self):
+        clean()
+
+    def test_it_quotes_what_arrived_flattened_and_plain(self):
+        r = self.Relay()
+        self.assertTrue(H.acknowledge(r, "**Fix** the `auth`\ntest please"))
+        self.assertEqual(len(r.sent), 1)
+        m = r.sent[0]
+        self.assertEqual(m["kind"], "ack")
+        self.assertEqual(m["text"],
+                         '👀 Got it — working on: "Fix the auth test please"')
+        self.assertFalse(m["expects_reply"], "nothing to answer")
+
+    def test_a_long_reply_is_cut_and_a_short_one_is_whole(self):
+        r = self.Relay()
+        H.acknowledge(r, "x" * 300)
+        quoted = r.sent[0]["text"].split('"')[1]
+        self.assertTrue(quoted.endswith("…"))
+        self.assertEqual(len(quoted), H.ACK_PREVIEW + 1)
+        H.acknowledge(r, "This")
+        self.assertIn('"This"', r.sent[1]["text"],
+                      "a swipe-reply that delivered only the new word shows it")
+
+    def test_it_waits_five_seconds_not_twenty(self):
+        # The relay just served this reply, so it is warm; the cap only stops
+        # one that died in between from holding Claude up.
+        r = self.Relay()
+        H.acknowledge(r, "hi")
+        self.assertEqual(r.sent[0]["timeout"], 5)
+
+    def test_a_failed_ack_never_raises(self):
+        r = self.Relay(fail=True)
+        self.assertFalse(H.acknowledge(r, "hi"))
+
+    def test_on_stop_still_hands_the_reply_over_when_the_ack_fails(self):
+        # The ack is a courtesy. Losing it must not lose the reply.
+        import on_stop
+        from cliqlib import set_mode
+        set_mode("on")
+        r = self.Relay(fail=True)
+        emitted = []
+        saved = (H.read_payload, H.ready, H.block_for_reply, H.emit)
+        try:
+            H.read_payload = lambda: {"session_id": "s1", "cwd": "/tmp/x",
+                                      "last_assistant_message": "done",
+                                      "stop_hook_active": False}
+            H.ready = lambda: (Config(), r)
+            H.block_for_reply = lambda *a, **k: {"text": "carry on"}
+            H.emit = emitted.append
+            self.assertEqual(on_stop.main(), 0)
+        finally:
+            H.read_payload, H.ready, H.block_for_reply, H.emit = saved
+            set_mode("off")
+        self.assertEqual(emitted, [{"decision": "block", "reason":
+                         'The user replied via Zoho Cliq: "carry on"'}])
+        self.assertEqual([m["kind"] for m in r.sent], ["finished", "ack"],
+                         "the ack is attempted, after the notification")
+
+
 class CliqMarkup(unittest.TestCase):
     """Text that Cliq would mangle on the way out."""
 

@@ -198,15 +198,21 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
         return 0
 
     picked = reply.get("picked")
+    typed = ""
     if reply.get("type") == "answer" and not picked and len(questions) == 1:
         # A plain typed reply answers a single question verbatim, which is
         # also how someone says something none of the options cover.
-        picked = {"0": (reply.get("text") or "").strip()}
+        typed = (reply.get("text") or "").strip()
+        picked = {"0": typed}
     if not picked:
         return 0
 
     answers = to_answers(questions, picked)
     if not answers:
         return 0
+    # Only for a TYPED answer. A form submission has already been told "Sent
+    # to your session." by the relay, and a second confirmation is noise.
+    if typed:
+        H.acknowledge(relay, typed, session_id=session_id, cwd=cwd)
     H.emit(decision(payload, answers))
     return 0

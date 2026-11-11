@@ -111,6 +111,7 @@ def main() -> int:
     answer = (reply.get("text") or "").strip()
     if not answer:
         return 0
+    H.acknowledge(relay, answer, session_id=session_id, cwd=cwd)
     H.emit({"decision": "block",
             "reason": f'The user replied via Zoho Cliq: "{answer}"'})
     return 0
