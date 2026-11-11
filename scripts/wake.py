@@ -77,6 +77,7 @@ _RETRYABLE = {
 
 PING_EVERY = 15.0           # a literal "-" frame
 SERVER_PING_EVERY = 60.0    # {"value":"ping"}
+STILL_NEEDED_EVERY = 15.0   # how often a listener asks whether to carry on
 
 
 class WakeError(Exception):
@@ -301,7 +302,7 @@ def connect(ticket: dict, *, streaming_id: str = "0", timeout: float = 20.0) -> 
 
 def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
            streaming_id: str = "0", renew=None, on_reconnect=None,
-           attempts: int = 4) -> str | None:
+           still_needed=None, attempts: int = 4) -> str | None:
     """Watch for wakes until `deadline`, reconnecting when told to.
 
     Calls `on_wake(payload_dict)` for every data event. If it returns a truthy
@@ -322,6 +323,13 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
     server close ends the session and leaves the old ticket to be rejected
     outright ("Data Streams rejected the ticket").
 
+    `still_needed()` is asked every STILL_NEEDED_EVERY seconds, and a falsy
+    answer closes the socket and returns None as if the deadline had passed.
+    It exists because the deadline alone kept a collector listening long after
+    its reason to had gone: a plan approved at the terminal left its hook
+    leading for the rest of a 30-minute window -- and, once the machine was
+    re-paired, listening to a relay nothing would ever ring again.
+
     Returns None on timeout.
     """
     delay = 1.0
@@ -330,7 +338,8 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
             return None
         try:
             return _listen_once(ticket, deadline=deadline, on_wake=on_wake,
-                                log=log, streaming_id=streaming_id)
+                                log=log, streaming_id=streaming_id,
+                                still_needed=still_needed)
         except WakeError as exc:
             if not exc.retryable or attempt == attempts:
                 raise
@@ -360,9 +369,9 @@ def listen(ticket: dict, *, deadline: float, on_wake, log=lambda *_: None,
 
 
 def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
-                 streaming_id: str) -> str | None:
+                 streaming_id: str, still_needed=None) -> str | None:
     conn = connect(ticket, streaming_id=streaming_id)
-    last_ping = last_server_ping = time.time()
+    last_ping = last_server_ping = last_needed = time.time()
     # When the server last said ANYTHING -- data, ping, pong. Recorded rather
     # than acted on: a stream that has gone silent is the failure we are
     # chasing, but nobody has ever measured how regular the server's own ping
@@ -381,6 +390,12 @@ def _listen_once(ticket: dict, *, deadline: float, on_wake, log,
             if now - last_server_ping >= SERVER_PING_EVERY:
                 conn.send_text(json.dumps({"type": "con", "value": "ping"}))
                 last_server_ping = now
+            if still_needed is not None and now - last_needed >= STILL_NEEDED_EVERY:
+                last_needed = now
+                if not still_needed():
+                    log("wake: nothing on this machine needs this connection "
+                        "any more — closing it")
+                    return None
 
             # Wake up often enough to keep the keepalives honest.
             slice_end = min(deadline, now + 5.0)

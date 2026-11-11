@@ -30,7 +30,8 @@ import attach
 import spool
 import waiter
 import wake
-from cliqlib import STATE_DIR, Config, Relay, RelayError, log, new_request_id
+from cliqlib import (STATE_DIR, Config, Relay, RelayError, load_config, log,
+                     new_request_id)
 
 LEADER_LOCK = STATE_DIR / "fetch.lock"
 # Remembers that the stream could not be reached, so a laptop behind a proxy
@@ -570,6 +571,41 @@ def _drain(cfg: Config, relay: Relay, want: str) -> dict | None:
     return _route_spooled(cfg, relay, want)
 
 
+def _pairing_changed(cfg: Config) -> bool:
+    """Has this machine been re-paired, or unpaired, since `cfg` was read?
+
+    Every hook reads the config once, at start, and keeps it. So a hook still
+    waiting when someone re-pairs carries on with the OLD relay and token --
+    and if it is the collector, every reply sent through the new bot sits
+    uncollected. Measured: two replies stranded on the test relay while the
+    collector listened to production.
+    """
+    try:
+        fresh = load_config()
+    except Exception:
+        return False                    # unreadable mid-write: decide next tick
+    return (fresh.relay_url, fresh.device_token) != (cfg.relay_url, cfg.device_token)
+
+
+def _still_needed(cfg: Config, want: str) -> bool:
+    """Should this hook carry on waiting for `want`?
+
+    No once its waiter is gone -- answered at the terminal, or cleared by the
+    next turn -- and no once the pairing it started under has changed. In the
+    second case the waiter is dropped here too: the question went out through
+    the old bot, so its answer can never arrive through the new one, and the
+    session belongs back at the terminal.
+    """
+    if not waiter.armed(want):
+        return False
+    if _pairing_changed(cfg):
+        log(f"collect: this machine was re-paired or unpaired — ending {want}, "
+            f"which belongs to the old pairing")
+        waiter.disarm(want)
+        return False
+    return True
+
+
 def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
     """Hold the socket and fetch for the machine until `want` is answered."""
     try:
@@ -650,10 +686,17 @@ def _lead(cfg: Config, relay: Relay, want: str, deadline: float) -> dict | None:
             log("collect: reconnected — checking for anything rung meanwhile")
             return _drain(cfg, relay, want)
 
+        # Asked every few seconds while listening. Without it a collector
+        # checked whether it was still wanted only when its own reply came or
+        # its window ran out -- so a plan approved at the terminal left its
+        # hook leading for up to half an hour, collecting for everyone.
         got = wake.listen(creds, deadline=until, on_wake=on_wake, log=log,
-                          renew=renew, on_reconnect=on_reconnect)
+                          renew=renew, on_reconnect=on_reconnect,
+                          still_needed=lambda: _still_needed(cfg, want))
         if got is not None and got is not _HOLD:
             return got
+        if not _still_needed(cfg, want):
+            return None           # hands the lock to whoever still waits
         if time.time() >= deadline:
             return None
         if got is _HOLD:
@@ -710,7 +753,9 @@ def wait_for(cfg: Config, relay: Relay, request_id: str,
         got = waiter.wait(request_id, min(deadline, time.time() + LEADER_RETRY))
         if got:
             return got
-        if not waiter.armed(request_id):
+        # A follower checks the pairing too: it would otherwise take over the
+        # lead later with the same stale relay and token.
+        if not _still_needed(cfg, request_id):
             return None
     return None
 
@@ -732,7 +777,7 @@ def _poll_until(cfg: Config, relay: Relay, want: str,
         spent += 1
         if got:
             return got
-        if not waiter.armed(want):
+        if not _still_needed(cfg, want):
             return None
         if spent >= cfg.poll_fallback_budget:
             # Stop rather than keep spending. A degraded mode that quietly

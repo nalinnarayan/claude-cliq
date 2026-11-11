@@ -1113,6 +1113,105 @@ class StaleNotice(unittest.TestCase):
         self.assertIn("and 3 more", said, "three shown, the rest counted")
 
 
+class StaleWaits(unittest.TestCase):
+    """A hook must stop waiting once nothing can answer it.
+
+    Found live: a plan approved at the terminal left its hook leading the
+    machine's collection for half an hour, and after a re-pair it kept
+    listening to the old relay -- so replies through the new bot sat
+    uncollected while the terminal showed it was waiting for them.
+    """
+
+    def setUp(self):
+        clean()
+        from cliqlib import load_config, save_config
+        cfg = load_config()
+        cfg.relay_url, cfg.device_token = "https://relay.test/server/relay", "tok-1"
+        save_config(cfg)
+
+    def arm(self, rid, kind="ask", session="s1"):
+        waiter.arm(rid, session_id=session, kind=kind, cwd="/tmp",
+                   expires_at=time.time() + 600)
+
+    def test_a_wait_is_needed_while_armed_under_the_same_pairing(self):
+        from cliqlib import load_config
+        self.arm("aaaaa")
+        self.assertTrue(collect._still_needed(load_config(), "aaaaa"))
+
+    def test_a_cancelled_wait_is_not_needed(self):
+        from cliqlib import load_config
+        cfg = load_config()
+        self.arm("aaaaa")
+        waiter.disarm("aaaaa")
+        self.assertFalse(collect._still_needed(cfg, "aaaaa"))
+
+    def test_re_pairing_ends_a_wait_from_the_old_pairing(self):
+        from cliqlib import load_config, save_config
+        cfg = load_config()                 # what the hook read at start
+        self.arm("aaaaa")
+        fresh = load_config()
+        fresh.relay_url, fresh.device_token = "https://other.test/server/relay", "tok-2"
+        save_config(fresh)                  # someone ran pair meanwhile
+        self.assertFalse(collect._still_needed(cfg, "aaaaa"))
+        self.assertFalse(waiter.armed("aaaaa"),
+                         "dropped: its answer can only come through the old bot")
+
+    def test_unpairing_ends_it_too(self):
+        from cliqlib import load_config, save_config
+        cfg = load_config()
+        self.arm("aaaaa")
+        fresh = load_config()
+        fresh.device_token = ""
+        save_config(fresh)
+        self.assertFalse(collect._still_needed(cfg, "aaaaa"))
+
+    def test_the_listener_hangs_up_when_no_longer_needed(self):
+        # Before: only its own reply or the deadline ended a listen.
+        class Conn:
+            sent = []
+            def send_text(self, t): self.sent.append(t)
+            def read_message(self, until): raise TimeoutError
+            def close(self, unsubscribe=False): self.closed = True
+        conn = Conn()
+        saved = (wake.connect, wake.STILL_NEEDED_EVERY)
+        try:
+            wake.connect = lambda ticket, streaming_id="0": conn
+            wake.STILL_NEEDED_EVERY = 0
+            started = time.time()
+            got = wake.listen({}, deadline=time.time() + 30,
+                              on_wake=lambda b: None, still_needed=lambda: False)
+        finally:
+            wake.connect, wake.STILL_NEEDED_EVERY = saved
+        self.assertIsNone(got)
+        self.assertLess(time.time() - started, 5, "well before the deadline")
+        self.assertTrue(getattr(conn, "closed", False), "the socket is closed")
+
+    def settle(self, tool_name):
+        import on_settled
+        from cliqlib import set_mode
+        set_mode("on")
+        saved = H.read_payload
+        try:
+            H.read_payload = lambda: {"session_id": "s1", "tool_name": tool_name}
+            on_settled.main()
+        finally:
+            H.read_payload = saved
+            set_mode("off")
+
+    def test_a_plan_approved_at_the_terminal_releases_its_wait(self):
+        for tool in ("ExitPlanMode", "AskUserQuestion"):
+            self.arm("aaaaa")
+            self.settle(tool)
+            self.assertFalse(waiter.armed("aaaaa"), tool)
+
+    def test_another_tool_settling_leaves_an_open_question_alone(self):
+        # A Read running alongside a question settles too; the question is
+        # still open and must stay answerable from Cliq.
+        self.arm("aaaaa")
+        self.settle("Read")
+        self.assertTrue(waiter.armed("aaaaa"))
+
+
 class Acknowledge(unittest.TestCase):
     """The "Claude has it" message, sent the moment a reply is handed over.
 

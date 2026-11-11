@@ -20,6 +20,9 @@ import hookutil as H
 import waiter
 from cliqlib import is_away, log
 
+# The tools whose hooks wait as kind `ask` (ask.py, plan.py).
+QUESTION_TOOLS = ("AskUserQuestion", "ExitPlanMode")
+
 
 def main() -> int:
     # Only the waiting mode ever arms a waiter, so only it has anything to
@@ -48,6 +51,23 @@ def main() -> int:
                     f"at the terminal")
         except Exception:
             pass
+
+        # A question or a plan settled too -- answered at the terminal, since a
+        # Cliq answer would have ended its hook already. These wait as `ask`,
+        # which the line above never touched, so an approved plan left its
+        # hook armed and LEADING for the rest of its half-hour window.
+        #
+        # Only when the settled tool IS one of those two. A Read running
+        # alongside a question also settles, and must not clear a question
+        # that is still open.
+        if payload.get("tool_name") in QUESTION_TOOLS:
+            try:
+                gone = waiter.disarm_for_session(session_id, kinds=("ask",))
+                if gone:
+                    log(f"settled: cleared {gone} question/plan waiter(s) "
+                        f"answered at the terminal")
+            except Exception:
+                pass
 
     tool_use_id = payload.get("tool_use_id", "")
     if tool_use_id:
