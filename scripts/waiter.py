@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from cliqlib import WAITERS_DIR, log
+from cliqlib import STATE_DIR, WAITERS_DIR, log
 
 # "yes abcde" / "no abcde" -- a permission verdict.
 VERDICT_RE = re.compile(r"^\s*(y|yes|ok|approve|n|no|deny|reject)\b[\s:,]*([a-z]{5})?\s*$", re.I)
@@ -34,6 +34,88 @@ def _path(request_id: str) -> Path:
     return WAITERS_DIR / f"{request_id}.json"
 
 
+# Where the Claude desktop app keeps one small file per session, holding the
+# name its sidebar shows. An internal format, not an interface: everything
+# reading it fails silently, so a desktop update can only cost the name.
+DESKTOP_SESSIONS = (Path.home() / "Library" / "Application Support" / "Claude"
+                    / "claude-code-sessions")
+# session id -> that session's desktop file, so only the first lookup searches.
+DESKTOP_INDEX = STATE_DIR / "desktop-sessions.json"
+# `cliSessionId` is the second field, at byte 59 in every file measured, and
+# the files run to hundreds of KB. Reading only the head while searching makes
+# skipping a file ~100x cheaper than parsing it.
+DESKTOP_HEAD_BYTES = 2048
+_CLI_ID = re.compile(rb'"cliSessionId"\s*:\s*"([^"]+)"')
+
+
+def _desktop_title_in(path: Path, session_id: str) -> str | None:
+    """The title in one desktop file, or None if it is not this session's."""
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return None
+    if data.get("cliSessionId") != session_id:
+        return None
+    return str(data.get("title") or "")
+
+
+def desktop_title(session_id: str) -> str:
+    """The name the Claude desktop app's sidebar shows for this session.
+
+    Desktop sessions have no title anywhere else the plugin can read --
+    their files even say `transcriptUnavailable` -- so the chooser fell back
+    to the folder name, which is the sidebar's GROUP: five sessions under
+    "zoho-demo-callgen" were all offered as "zoho-demo-callgen".
+
+    Built not to grow with the number of sessions on the machine. A known
+    session reads its one file (re-read every time, since titles change and
+    can be renamed). An unknown one searches newest-first -- the session
+    asking has almost always just been active -- reading only each file's
+    head, and stops at the match. Measured: a full parse of every file would
+    cost ~250 ms per thousand sessions, several times per message.
+    """
+    if not session_id:
+        return ""
+    try:
+        try:
+            index = json.loads(DESKTOP_INDEX.read_text())
+        except Exception:
+            index = {}
+        known = index.get(session_id)
+        if known:
+            title = _desktop_title_in(Path(known), session_id)
+            if title is not None:
+                return title
+
+        if not DESKTOP_SESSIONS.is_dir():
+            return ""
+        files = sorted(DESKTOP_SESSIONS.glob("*/*/local_*.json"),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+        want = session_id.encode()
+        for f in files:
+            try:
+                with f.open("rb") as fh:
+                    m = _CLI_ID.search(fh.read(DESKTOP_HEAD_BYTES))
+            except Exception:
+                continue
+            if not m or m.group(1) != want:
+                continue
+            title = _desktop_title_in(f, session_id)
+            if title is None:
+                continue
+            index[session_id] = str(f)
+            try:
+                tmp = DESKTOP_INDEX.with_suffix(".tmp")
+                tmp.write_text(json.dumps(index))
+                tmp.replace(DESKTOP_INDEX)
+            except Exception:
+                pass
+            return title
+    except Exception:
+        pass
+    return ""
+
+
 def session_title(session_id: str, cwd: str, transcript_path: str = "") -> str:
     """The name Claude Code's own /resume picker shows for this session.
 
@@ -48,6 +130,11 @@ def session_title(session_id: str, cwd: str, transcript_path: str = "") -> str:
     """
     if not session_id:
         return ""
+    # The desktop app's own name first: it is what the sidebar shows, and
+    # desktop sessions have no title in any transcript the plugin can reach.
+    title = desktop_title(session_id)
+    if title:
+        return title
     try:
         root = Path.home() / ".claude" / "projects"
         # The hook payload's own transcript_path first. It is the only lookup

@@ -34,6 +34,10 @@ import spool            # noqa: E402
 import waiter           # noqa: E402
 from cliqlib import Config, RelayError, notify_only_hint  # noqa: E402
 
+# Never read the real desktop app's session files from a test: a title lookup
+# anywhere in the suite would otherwise depend on whatever is on this machine.
+waiter.DESKTOP_SESSIONS = Path(tempfile.mkdtemp(prefix="cliq-selftest-desktop-"))
+
 
 def row(id_, text, *, request_id="", age_s=0.0):
     """A relay row. `ts` is epoch MILLISECONDS, as the relay sends it."""
@@ -1111,6 +1115,68 @@ class StaleNotice(unittest.TestCase):
         collect._route_spooled(Config(stale_after_seconds=1800), relay, "zzzzz")
         said = relay.sent[0]["text"]
         self.assertIn("and 3 more", said, "three shown, the rest counted")
+
+
+class DesktopTitles(unittest.TestCase):
+    """The name the desktop app's sidebar shows, found by session id.
+
+    Reported with a screenshot: five sessions grouped under one folder were
+    all offered in the chooser as the folder's name.
+    """
+
+    def setUp(self):
+        clean()
+        self.root = Path(tempfile.mkdtemp())
+        self.saved = waiter.DESKTOP_SESSIONS
+        waiter.DESKTOP_SESSIONS = self.root
+        waiter.DESKTOP_INDEX.unlink(missing_ok=True)
+
+    def tearDown(self):
+        waiter.DESKTOP_SESSIONS = self.saved
+
+    def session(self, cli_id, title, *, group="g1", pad=0):
+        d = self.root / "acct" / group
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / f"local_{cli_id}.json"
+        # Same field order as the real files: the id near the top.
+        f.write_text(json.dumps({"sessionId": f"local_{cli_id}",
+                                 "cliSessionId": cli_id, "title": title,
+                                 "padding": "x" * pad}, separators=(",", ":")))
+        return f
+
+    def test_the_sidebar_name_is_found_by_session_id(self):
+        self.session("aaa", "Claude plan inquiry")
+        self.session("bbb", "Pair session 4e236b")
+        self.assertEqual(waiter.desktop_title("bbb"), "Pair session 4e236b")
+        self.assertEqual(waiter.session_title("bbb", "/Users/x/zoho-demo-callgen"),
+                         "Pair session 4e236b", "and the chooser uses it")
+
+    def test_a_rename_is_picked_up_after_the_first_lookup(self):
+        f = self.session("aaa", "Claude Cliq pair session")
+        self.assertEqual(waiter.desktop_title("aaa"), "Claude Cliq pair session")
+        self.session("aaa", "Renamed by hand")
+        self.assertEqual(waiter.desktop_title("aaa"), "Renamed by hand")
+
+    def test_the_second_lookup_does_not_search(self):
+        self.session("aaa", "First")
+        waiter.desktop_title("aaa")
+        saved = waiter.DESKTOP_SESSIONS
+        try:
+            waiter.DESKTOP_SESSIONS = Path("/nonexistent")   # a search would miss
+            self.assertEqual(waiter.desktop_title("aaa"), "First")
+        finally:
+            waiter.DESKTOP_SESSIONS = saved
+
+    def test_a_large_file_is_matched_from_its_head(self):
+        self.session("big", "Huge session", pad=400_000)
+        self.assertEqual(waiter.desktop_title("big"), "Huge session")
+
+    def test_unknown_missing_and_broken_all_come_back_empty(self):
+        (self.root / "acct" / "g1").mkdir(parents=True)
+        (self.root / "acct" / "g1" / "local_broken.json").write_text("{not json")
+        self.assertEqual(waiter.desktop_title("nope"), "")
+        waiter.DESKTOP_SESSIONS = Path("/nonexistent")
+        self.assertEqual(waiter.desktop_title("nope"), "")
 
 
 class HeaderLine(unittest.TestCase):
