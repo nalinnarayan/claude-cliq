@@ -1113,6 +1113,48 @@ class StaleNotice(unittest.TestCase):
         self.assertIn("and 3 more", said, "three shown, the rest counted")
 
 
+class HeaderLine(unittest.TestCase):
+    """The line at the top of every message saying which session it is.
+
+    Reported from a phone: a desktop-app chat headed every message with a
+    scratch folder named by two UUIDs and a hash.
+    """
+
+    SCRATCH = ("/Users/someone/Library/Application Support/Claude/"
+               "scratch-workspaces/aaaa1111/bbbb2222/scratch-2026-01-01-c0ffee")
+
+    def transcript(self, title):
+        f = Path(tempfile.mkdtemp()) / "t.jsonl"
+        f.write_text(json.dumps({"type": "user", "text": "hi"}) + "\n"
+                     + (json.dumps({"type": "ai-title", "aiTitle": title,
+                                    "sessionId": "d1"}) + "\n" if title else ""))
+        return str(f)
+
+    def test_a_titled_desktop_session_shows_its_title(self):
+        line = H.context_line(self.SCRATCH, {"session_id": "d1",
+                              "transcript_path": self.transcript("Pairing with Zoho Cliq")})
+        self.assertEqual(line, "Desktop · Pairing with Zoho Cliq")
+
+    def test_an_untitled_desktop_session_says_so_and_nothing_else(self):
+        # No scratch id after it -- asked for explicitly.
+        line = H.context_line(self.SCRATCH, {"session_id": "d1",
+                              "transcript_path": self.transcript("")})
+        self.assertEqual(line, "Desktop session")
+
+    def test_a_long_title_is_cut(self):
+        line = H.context_line(self.SCRATCH, {"session_id": "d1",
+                              "transcript_path": self.transcript("word " * 40)})
+        self.assertTrue(line.endswith("…"))
+        self.assertLessEqual(len(line), len("Desktop · ") + H.TITLE_MAX + 1)
+
+    def test_no_payload_still_reads_as_a_desktop_session(self):
+        self.assertEqual(H.context_line(self.SCRATCH), "Desktop session")
+
+    def test_a_real_project_folder_is_unchanged(self):
+        line = H.context_line("/tmp/not-a-repo")
+        self.assertEqual(line, "/tmp/not-a-repo")
+
+
 class StaleWaits(unittest.TestCase):
     """A hook must stop waiting once nothing can answer it.
 

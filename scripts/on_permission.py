@@ -108,7 +108,7 @@ def main() -> int:
         return 0
 
     rid = new_request_id()
-    ctx = H.context_line(cwd)
+    ctx = H.context_line(cwd, payload)
     detail = describe(tool, tool_input)
     text = (f"🔐 Permission needed — {tool}"
             + (f"\n{ctx}" if ctx else "")

@@ -141,7 +141,7 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
     session_id = payload.get("session_id", "")
     cwd = payload.get("cwd", "")
     rid = new_request_id()
-    ctx = H.context_line(cwd)
+    ctx = H.context_line(cwd, payload)
     head = "❓ Claude is asking" + (f" — {ctx}" if ctx else "")
     text = f"{head}\n\n{render(questions)}"
 

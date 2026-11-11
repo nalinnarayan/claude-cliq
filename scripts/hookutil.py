@@ -99,7 +99,30 @@ def summarize(text: str, limit: int = MAX_SUMMARY) -> str:
               f"terminal.]")
 
 
-def context_line(cwd: str) -> str:
+# Where the Claude desktop app runs a chat that has no project folder. The
+# folder is created per chat and named by ids, so it identifies nothing.
+SCRATCH_MARKER = "/Library/Application Support/Claude/scratch-workspaces/"
+TITLE_MAX = 60
+
+
+def context_line(cwd: str, payload: dict | None = None) -> str:
+    """The line that says which session a message came from.
+
+    A folder and branch for a real project. For a desktop-app scratch folder
+    the path was a screenful of ids -- reported from a phone -- so the
+    session's own title is shown instead, the one Claude Code's /resume picker
+    uses. Untitled sessions say only "Desktop session": the scratch folder's
+    id was asked to be left out, at the cost of two untitled sessions looking
+    alike until they get titles.
+    """
+    if cwd and SCRATCH_MARKER in cwd:
+        payload = payload or {}
+        title = waiter.session_title(payload.get("session_id", ""), cwd,
+                                     payload.get("transcript_path", ""))
+        title = " ".join(title.split())
+        if len(title) > TITLE_MAX:
+            title = title[:TITLE_MAX].rstrip() + "…"
+        return f"Desktop · {title}" if title else "Desktop session"
     bits = [short_cwd(cwd)] if cwd else []
     branch = git_branch(cwd)
     if branch:

@@ -71,7 +71,7 @@ def main() -> int:
     at_ceiling = streak >= cfg.max_block_streak
     armed = is_away() and not at_ceiling
     rid = new_request_id()
-    ctx = H.context_line(cwd)
+    ctx = H.context_line(cwd, payload)
     lead = "💬 Answered" if resumed else "✅ Claude finished"
     text = f"{lead} — {ctx}\n\n{body}" if ctx else f"{lead}\n\n{body}"
 

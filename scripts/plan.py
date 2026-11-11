@@ -155,7 +155,7 @@ def handle(cfg: Config, relay: Relay, payload: dict) -> int:
     session_id = payload.get("session_id", "")
     cwd = payload.get("cwd", "")
     rid = new_request_id()
-    ctx = H.context_line(cwd)
+    ctx = H.context_line(cwd, payload)
     head = "📋 A plan is ready" + (f" — {ctx}" if ctx else "")
 
     if not is_away():

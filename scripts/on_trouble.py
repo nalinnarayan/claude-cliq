@@ -33,7 +33,7 @@ def main() -> int:
         return 0
 
     cwd = payload.get("cwd", "")
-    ctx = H.context_line(cwd)
+    ctx = H.context_line(cwd, payload)
 
     if mode == "idle":
         text = f"⏳ Claude has been idle and may be waiting on you — {ctx}"

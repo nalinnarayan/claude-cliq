@@ -34,7 +34,7 @@ def _path(request_id: str) -> Path:
     return WAITERS_DIR / f"{request_id}.json"
 
 
-def session_title(session_id: str, cwd: str) -> str:
+def session_title(session_id: str, cwd: str, transcript_path: str = "") -> str:
     """The name Claude Code's own /resume picker shows for this session.
 
     Claude Code writes `{"type":"ai-title","aiTitle":…,"sessionId":…}` into the
@@ -50,6 +50,11 @@ def session_title(session_id: str, cwd: str) -> str:
         return ""
     try:
         root = Path.home() / ".claude" / "projects"
+        # The hook payload's own transcript_path first. It is the only lookup
+        # that finds a Claude desktop app session: those keep their
+        # transcripts somewhere other than ~/.claude/projects, so the search
+        # below never found one and their messages fell back to a path.
+        #
         # The cwd is a HINT, not the answer. A transcript lives under the
         # directory the session STARTED in, and a session's cwd moves -- any
         # `cd` during the conversation changes what the hook reports. Deriving
@@ -58,7 +63,9 @@ def session_title(session_id: str, cwd: str) -> str:
         #
         # A session id is a UUID, so it is simply findable. The hint is tried
         # first only to avoid a glob in the common case.
-        path = root / cwd.replace("/", "-") / f"{session_id}.jsonl" if cwd else None
+        path = Path(transcript_path) if transcript_path else None
+        if path is None or not path.exists():
+            path = root / cwd.replace("/", "-") / f"{session_id}.jsonl" if cwd else None
         if path is None or not path.exists():
             path = next(root.glob(f"*/{session_id}.jsonl"), None)
         if path is None:
