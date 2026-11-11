@@ -154,7 +154,7 @@ def main() -> int:
             # user has forgotten about is the dangerous kind.
             H.send(relay, kind="ack", request_id=new_request_id(),
                    text=(f"👍 Approving everything in this session for {mins} minutes.\n"
-                         f"Run `/claude-cliq:away off` to revoke it immediately."),
+                         f"Run `/cliq-waiting:away off` to revoke it immediately."),
                    session_id=session_id, cwd=cwd)
         decision = allow_decision(tool, tool_input)
     else:

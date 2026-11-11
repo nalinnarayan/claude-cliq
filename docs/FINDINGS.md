@@ -1540,7 +1540,7 @@ logged**. The terminal shows the hook's status flash and then "done", which
 looks exactly like the earlier giving-up bug and is a completely different
 thing.
 
-`/claude-cliq:away on` is itself such a turn, which is the cruel part: the
+`/cliq-waiting:away on` is itself such a turn, which is the cruel part: the
 moment you most want to hand a session an instruction from your phone is right
 after switching away mode on, and that was precisely the turn that would not
 wait.

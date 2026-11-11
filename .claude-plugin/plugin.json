@@ -1,6 +1,7 @@
 {
-  "name": "claude-cliq",
-  "description": "Get pinged in Zoho Cliq when Claude Code finishes, asks a question, or needs permission \u2014 and reply from Cliq to keep it working.",
+  "name": "cliq-waiting",
+  "displayName": "cliq-claude-is-waiting",
+  "description": "Get pinged in Zoho Cliq when Claude Code finishes, asks a question, or needs permission — and reply from Cliq to keep it working.",
   "keywords": [
     "zoho",
     "cliq",

@@ -78,20 +78,20 @@ msg = msg + "*1. Claude Code on Terminal*\n\n";
 // next release -- and by then they have the plugin, so the slash command is
 // the better introduction to it anyway.
 msg = msg + "In your terminal:\n";
-msg = msg + "```\nclaude plugin install claude-cliq --marketplace REPLACE_WITH_REPO\n```\n";
+msg = msg + "```\nclaude plugin install cliq-claude-is-waiting --marketplace REPLACE_WITH_REPO\n```\n";
 msg = msg + "Then, inside Claude Code:\n";
 // The relay URL rides along because nothing on the user's machine knows
 // it yet: the plugin ships no default (every deployment has its own
 // relay, so a shipped one would point this pairing at someone else's
 // account). Rendered per environment, like every other value here.
-msg = msg + "```\n/claude-cliq:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n\n";
+msg = msg + "```\n/cliq-waiting:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n\n";
 // The desktop app has no terminal to paste into and its /plugin panel does
 // not run there, so the route is Settings -> Plugins -> Add marketplace. That
 // is a sequence of clicks, which a video shows far better than prose -- and
 // the video follows rather than precedes, so this line has to promise it.
 msg = msg + "*2. Claude Mac Desktop App*\n\n";
 msg = msg + "See the short video in the next message.\n\n";
-msg = msg + "The code is good for 10 minutes — if it runs out, tap *Send me a new code* below. Once paired, run `/claude-cliq:away on` whenever you step away and I'll ping you here.";
+msg = msg + "The code is good for 10 minutes — if it runs out, tap *Send me a new code* below. Once paired, run `/cliq-waiting:away on` whenever you step away and I'll ping you here.";
 
 response.put("text", msg);
 response.put("buttons", buttons);

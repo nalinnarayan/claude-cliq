@@ -7,7 +7,8 @@
   },
   "plugins": [
     {
-      "name": "claude-cliq",
+      "name": "cliq-claude-is-waiting",
+      "displayName": "cliq-claude-is-waiting",
       "description": "Get pinged in Zoho Cliq when Claude Code finishes, asks a question, or needs permission — and reply from Cliq to keep it working.",
       "author": {
         "name": "Nalin Narayan"
@@ -15,5 +16,8 @@
       "category": "productivity",
       "source": "./"
     }
-  ]
+  ],
+  "renames": {
+    "claude-cliq": "cliq-claude-is-waiting"
+  }
 }

@@ -1,6 +1,6 @@
 ---
 name: pair
-description: Pair this machine with your Zoho Cliq account using the code the Claude Code bot DM'd you. Use when the user runs /claude-cliq:pair, says they want to connect Cliq, or pastes a pairing code.
+description: Pair this machine with your Zoho Cliq account using the code the Claude Code bot DM'd you. Use when the user runs /cliq-waiting:pair, says they want to connect Cliq, or pastes a pairing code.
 ---
 
 # Pair with Zoho Cliq
@@ -24,7 +24,7 @@ have one, tell them to subscribe to the bot at
 If they have a code but no URL, ask them to paste the bot's whole message:
 there is no default, and pairing cannot be guessed at.
 
-After pairing succeeds, tell them in one line: `/claude-cliq:away on` when
+After pairing succeeds, tell them in one line: `/cliq-waiting:away on` when
 they step away — Claude then waits for Cliq replies.
 
 To check state or disconnect:

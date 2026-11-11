@@ -53,7 +53,7 @@ try
 	else
 	{
 		msg = "Here's a fresh pairing code. Inside Claude Code:\n";
-		msg = msg + "```\n/claude-cliq:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n";
+		msg = msg + "```\n/cliq-waiting:pair " + code + " REPLACE_WITH_RELAY_BASE\n```\n";
 		// Said every time, because the whole reason someone taps this button
 		// is that they did not know the last one had run out.
 		msg = msg + "Good for 10 minutes. This replaces any earlier code — the one in the welcome message no longer works.";

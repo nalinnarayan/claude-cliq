@@ -1,6 +1,6 @@
 ---
 name: away
-description: Turn away mode on or off. Away mode makes Claude wait for a Zoho Cliq reply before finishing a turn or acting on a permission request. Use when the user runs /claude-cliq:away or says they're stepping away from the keyboard.
+description: Turn away mode on or off. Away mode makes Claude wait for a Zoho Cliq reply before finishing a turn or acting on a permission request. Use when the user runs /cliq-waiting:away or says they're stepping away from the keyboard.
 ---
 
 # Away mode

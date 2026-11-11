@@ -57,7 +57,7 @@ def cmd_pair(args) -> int:
     note = ensure_block_cap()
     if note:
         print(note)
-    print("Run `/claude-cliq:away on` when you step away and Claude will wait for "
+    print("Run `/cliq-waiting:away on` when you step away and Claude will wait for "
           "your replies in Cliq.")
     return 0
 
@@ -183,7 +183,7 @@ def cmd_status(args) -> int:
 def cmd_test(args) -> int:
     cfg = load_config()
     if not cfg.paired:
-        print("Not paired yet. Run `/claude-cliq:pair <code>` first.")
+        print("Not paired yet. Run `/cliq-waiting:pair <code>` first.")
         return 1
     rid = new_request_id()
     try:

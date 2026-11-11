@@ -31,7 +31,7 @@ _Short-lived one-time codes issued by the bot's welcome handler._
 
 | Column | Data Type | Size | Toggles | Why |
 | --- | --- | --- | --- | --- |
-| `code` | varchar | Max Length **32** | **Mandatory**, **Unique** | The code typed into /claude-cliq:pair |
+| `code` | varchar | Max Length **32** | **Mandatory**, **Unique** | The code typed into /cliq-waiting:pair |
 | `cliq_user` | varchar | Max Length **64** | **Mandatory** |  |
 | `email` | varchar | Max Length **255** | **Mandatory** |  |
 | `expires` | bigint | no size field | **Mandatory** | Epoch milliseconds |

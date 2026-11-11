@@ -70,7 +70,7 @@
           "is_mandatory": "true",
           "search_index_enabled": "false",
           "audit_consent": "false",
-          "description": "The code typed into /claude-cliq:pair"
+          "description": "The code typed into /cliq-waiting:pair"
         },
         {
           "column_name": "cliq_user",

@@ -1551,7 +1551,7 @@ class NotifyOnlyHint(unittest.TestCase):
     def test_every_notify_only_message_names_the_mode_and_the_fix(self):
         for hint in (notify_only_hint(), notify_only_hint(waiting_at_terminal=True)):
             self.assertIn("notify-only", hint, "says which mode it is in")
-            self.assertIn("/claude-cliq:away on", hint, "and how to change it")
+            self.assertIn("/cliq-waiting:away on", hint, "and how to change it")
             self.assertIn("won't reach", hint, "and that a reply goes nowhere")
 
     def test_the_terminal_wording_does_not_repeat_itself(self):

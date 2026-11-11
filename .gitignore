@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 probe/s*.json
 cliq-extension/generated/
+
+.DS_Store

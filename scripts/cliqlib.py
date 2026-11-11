@@ -321,10 +321,10 @@ def notify_only_hint(waiting_at_terminal: bool = False) -> str:
     """
     if waiting_at_terminal:
         return ("notify-only — it's waiting for you at the terminal, and "
-                "replying here won't reach it. Run `/claude-cliq:away on` "
+                "replying here won't reach it. Run `/cliq-waiting:away on` "
                 "to change that.")
     return ("notify-only — replying here won't reach this session. "
-            "Run `/claude-cliq:away on` at the terminal to change that.")
+            "Run `/cliq-waiting:away on` at the terminal to change that.")
 
 
 

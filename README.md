@@ -23,12 +23,12 @@ only be picked up at the terminal.
    `https://cliq.zoho.com/bots/<bot_unique_name>`). It DMs you a pairing code.
 2. In your terminal:
    ```sh
-   claude plugin install claude-cliq --marketplace <this-repo>
+   claude plugin install cliq-claude-is-waiting --marketplace <this-repo>
    ```
 3. Pair this machine, pasting the whole command from the DM — it carries the
    code and the relay to pair against:
    ```
-   /claude-cliq:pair <code> <relay-url>
+   /cliq-waiting:pair <code> <relay-url>
    ```
    Pairing also raises `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` in your
    `~/.claude/settings.json`, and tells you it has. Claude Code stops
@@ -39,7 +39,7 @@ only be picked up at the terminal.
    for it to apply.
 4. When you step away:
    ```
-   /claude-cliq:away on
+   /cliq-waiting:away on
    ```
 
 No OAuth app, no API console, no tokens to mint. Your laptop never holds a Cliq
@@ -65,7 +65,7 @@ Replying:
 `all` exists because a session doing unfamiliar work can ask six times in two
 minutes, and answering each from a phone is miserable. It is deliberately
 bounded — one session, half an hour, and revoked the moment you run
-`/claude-cliq:away off`. The bot tells you in the chat exactly what it granted,
+`/cliq-waiting:away off`. The bot tells you in the chat exactly what it granted,
 because a blanket approval you have forgotten about is the dangerous kind.
 
 A bare reply works whenever only one thing is waiting. When several are, the bot
@@ -76,7 +76,7 @@ they are never auto-denied.
 
 ## What triggers a ping
 
-Away mode has three states, set with `/claude-cliq:away <state>`:
+Away mode has three states, set with `/cliq-waiting:away <state>`:
 
 | | Cliq hears about it | the session waits |
 | --- | --- | --- |
@@ -291,7 +291,7 @@ The bot is discoverable org-wide, so this is the part that matters.
   everyone else's are deleted on delivery.
 
 A stolen device token would let someone read that one user's pings. The config
-file is `0600` and `/claude-cliq:pair` revokes any previous token.
+file is `0600` and `/cliq-waiting:pair` revokes any previous token.
 
 ## Environments
 
@@ -378,5 +378,5 @@ scripts/      laptop side: hooks, daemon, CLI, mock relay   (python3 stdlib only
 relay/        Catalyst Advanced I/O function + tests        (node)
 cliq-extension/  the two Deluge handlers
 hooks/        hook registrations
-skills/       /claude-cliq:pair and :away
+skills/       /cliq-waiting:pair and :away
 ```
