@@ -407,33 +407,23 @@ def _route_spooled(cfg: Config, relay: Relay, want: str) -> dict | None:
             offered = item.get("asked_about") or []
             live = {w["request_id"] for w in armed}
             if offered and not (set(offered) & live):
-                # Every option it was asked about has gone. A tap can no
-                # longer land, so holding out for one strands the reply
-                # forever -- which lost a real message.
-                #
-                # The reply belonged to one of those sessions, so it may only
-                # go to that same session: handing it to a different one is
-                # the misdelivery this flag exists to prevent. One waiter from
-                # the same session is the unambiguous case; anything else is
-                # reported rather than guessed at.
-                same = [w for w in armed
-                        if (w.get("session_id") or "") in
-                        set(item.get("asked_sessions") or [])]
-                if len(same) == 1:
-                    log(f"collect: the options for {item['id']} are gone — "
-                        f"giving it to {same[0]['request_id']}, same session")
-                    spool.mark(item["id"], needs_pick=False)
-                    armed, bound_id = same, ""
-                else:
-                    log(f"collect: the options for {item['id']} are gone and "
-                        f"{len(same)} waiters remain in that session — dropping")
-                    taken.append(item["id"])
-                    _notify(relay,
-                            "That reply came while two things were waiting, and "
-                            "both have since been answered or closed — so there "
-                            "was nowhere left to send it. Send it again if it "
-                            "still applies.")
-                    continue
+                # Every option it was asked about has gone, so no tap can land.
+                # It is NOT delivered anywhere: nobody picked a session, and a
+                # reply nobody routed must not be guessed at. A same-session
+                # fallback used to give it to the one remaining waiter there --
+                # which put an unrouted "Hello" into a session it was never
+                # meant for. Dropped instead, and the sender is told, so it is
+                # never lost silently either (a held reply waiting for a tap
+                # that could no longer come is how one went missing before).
+                log(f"collect: the options for {item['id']} are gone and no "
+                    f"session was picked — dropping")
+                taken.append(item["id"])
+                _notify(relay,
+                        "That reply came while more than one thing was waiting, "
+                        "and none was picked before they were answered or "
+                        "closed — so it wasn't sent to any session. Send it "
+                        "again if it still applies.")
+                continue
             else:
                 continue
 

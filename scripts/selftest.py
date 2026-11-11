@@ -334,12 +334,11 @@ class Routing(unittest.TestCase):
         got = collect._drain(self.cfg, relay, "aaaaa")
         self.assertNotIn("picked", got["text"], "the bound reply stayed out of it")
 
-    def test_a_held_reply_is_not_stranded_when_its_options_vanish(self):
-        # A real message was lost this way. The chooser held it awaiting a tap,
-        # then the Stop sweep cleared both waiters it had offered -- so no tap
-        # could land, nothing could resolve it, and it sat until the staleness
-        # prune would have discarded it. The fix for one bug opened a
-        # reply-loss path in another.
+    def test_a_held_reply_nobody_routed_goes_nowhere_and_says_so(self):
+        # The chooser held it awaiting a tap, then both waiters it offered went
+        # away. It used to be handed to a new waiter in the same session; that
+        # put an unrouted "Hello" into a session nobody chose. Now it is
+        # dropped -- but never silently, which is how a reply was once lost.
         self.arm("aaaaa")
         self.arm("bbbbb")
         relay = FakeRelay([[row("1", "which of us is this for")]])
@@ -349,14 +348,15 @@ class Routing(unittest.TestCase):
         self.assertEqual(sorted(held["asked_about"]), ["aaaaa", "bbbbb"],
                          "and it remembers WHAT it offered")
 
-        # Both options go away; a new waiter in the same session takes over.
         waiter.disarm("aaaaa")
         waiter.disarm("bbbbb")
-        self.arm("ccccc")
-        got = collect._route_spooled(self.cfg, FakeRelay(), "ccccc")
-        self.assertIsNotNone(got, "delivered rather than stranded")
-        self.assertIn("which of us", got["text"])
-        self.assertEqual(spool.items(), [], "and nothing left behind")
+        self.arm("ccccc")                      # same session as both
+        after = FakeRelay()
+        got = collect._route_spooled(self.cfg, after, "ccccc")
+        self.assertIsNone(got, "not delivered to a session nobody picked")
+        self.assertEqual(spool.items(), [], "and nothing left stranded")
+        said = " ".join(m["text"] for m in after.sent)
+        self.assertIn("wasn't sent to any session", said, "the sender is told")
 
     def test_a_held_reply_is_never_given_to_a_different_session(self):
         # It belonged to one of the sessions it was asked about. Handing it to
@@ -377,7 +377,7 @@ class Routing(unittest.TestCase):
         got = collect._route_spooled(self.cfg, after, "ccccc")
         self.assertIsNone(got, "a stranger's session must not receive it")
         said = " ".join(m["text"] for m in after.sent)
-        self.assertIn("nowhere left to send it", said, "and the sender is told")
+        self.assertIn("wasn't sent to any session", said, "and the sender is told")
         self.assertEqual(spool.items(), [], "not left to rot either")
 
     def test_tapping_a_dead_question_points_at_the_live_one(self):
